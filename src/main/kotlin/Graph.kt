@@ -16,7 +16,11 @@ import kotlin.math.floor
 import kotlin.math.max
 
 @Composable
-fun EngineeringCanvas(points: List<RiverPoint>, isLSection: Boolean, showPre: Boolean, showPost: Boolean, hScale: Double, vScale: Double) {
+fun EngineeringCanvas(
+    points: List<RiverPoint>, isLSection: Boolean, showPre: Boolean, showPost: Boolean,
+    hScale: Double, vScale: Double,
+    preColor: Color, postColor: Color, preDotted: Boolean, postDotted: Boolean
+) {
     if (points.isEmpty()) return
 
     val textMeasurer = rememberTextMeasurer()
@@ -44,7 +48,7 @@ fun EngineeringCanvas(points: List<RiverPoint>, isLSection: Boolean, showPre: Bo
 
         val gridPathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f), 0f)
 
-        // Y-Axis
+        // Grid & Axes
         val ySteps = 5
         for (i in 0..ySteps) {
             val yVal = minY + (i * (yRange / ySteps))
@@ -52,8 +56,6 @@ fun EngineeringCanvas(points: List<RiverPoint>, isLSection: Boolean, showPre: Bo
             drawLine(Color.LightGray, start = Offset(padding, yPos), end = Offset(width - padding, yPos), pathEffect = gridPathEffect)
             drawText(textMeasurer, String.format("%.1f", yVal), Offset(5f, yPos - 10f), TextStyle(fontSize = 10.sp, color = Color.Black))
         }
-
-        // X-Axis
         val xSteps = 8
         for (i in 0..xSteps) {
             val xVal = minX + (i * (xRange / xSteps))
@@ -70,7 +72,7 @@ fun EngineeringCanvas(points: List<RiverPoint>, isLSection: Boolean, showPre: Bo
         drawLine(Color.Black, start = Offset(padding, height - padding), end = Offset(width - padding, height - padding), strokeWidth = 2f)
         drawLine(Color.Black, start = Offset(padding, padding), end = Offset(padding, height - padding), strokeWidth = 2f)
 
-        fun drawSeries(getColor: (RiverPoint) -> Double, color: Color) {
+        fun drawSeries(getColor: (RiverPoint) -> Double, color: Color, isDotted: Boolean) {
             val path = Path()
             var first = true
             points.forEach { p ->
@@ -80,10 +82,11 @@ fun EngineeringCanvas(points: List<RiverPoint>, isLSection: Boolean, showPre: Bo
                 if (first) { path.moveTo(x, y); first = false } else { path.lineTo(x, y) }
                 drawCircle(color, radius = 3f, center = Offset(x, y))
             }
-            drawPath(path, color, style = Stroke(width = 2f))
+            val effect = if(isDotted) PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f) else null
+            drawPath(path, color, style = Stroke(width = 2f, pathEffect = effect))
         }
 
-        if (showPre) drawSeries({ it.preMonsoon }, Color.Blue)
-        if (showPost) drawSeries({ it.postMonsoon }, Color.Red)
+        if (showPre) drawSeries({ it.preMonsoon }, preColor, preDotted)
+        if (showPost) drawSeries({ it.postMonsoon }, postColor, postDotted)
     }
 }

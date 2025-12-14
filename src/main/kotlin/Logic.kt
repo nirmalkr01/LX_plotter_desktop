@@ -1,3 +1,4 @@
+import java.awt.BasicStroke
 import java.awt.FileDialog
 import java.awt.Frame
 import java.awt.image.BufferedImage
@@ -8,46 +9,14 @@ import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
 
-// ==========================================
-// HISTORY LOGIC (Moved here to fix Unresolved Reference)
-// ==========================================
-
-fun getHistoryFile(): File {
-    val userHome = System.getProperty("user.home")
-    val appDir = File(userHome, ".lxplotter")
-    if (!appDir.exists()) appDir.mkdirs()
-    return File(appDir, "history.txt")
-}
-
-fun saveHistory(paths: List<String>) {
-    try {
-        getHistoryFile().writeText(paths.joinToString("\n"))
-    } catch (e: Exception) { e.printStackTrace() }
-}
-
-fun loadHistory(): List<String> {
-    val file = getHistoryFile()
-    return if (file.exists()) file.readLines().filter { it.isNotBlank() } else emptyList()
-}
-
-// ==========================================
-// DATA PROCESSING
-// ==========================================
-
+// --- DATA PROCESSING (Unchanged) ---
 fun getCurrentViewData(allData: List<RiverPoint>, type: String, chainage: Double, startCh: Double, endCh: Double): List<RiverPoint> {
     return if (type == "L-Section") {
-        // L-Section: Only points where distance == 0 (Center Line)
         val lSecData = allData.groupBy { it.chainage }
-            .map { (_, pts) ->
-                // Find point closest to 0
-                pts.minByOrNull { abs(it.distance) } ?: pts.first()
-            }
+            .map { (_, pts) -> pts.minByOrNull { abs(it.distance) } ?: pts.first() }
             .sortedBy { it.chainage }
-
-        // Filter by user range
         lSecData.filter { it.chainage >= startCh && it.chainage <= endCh }
     } else {
-        // X-Section: All points for specific chainage
         allData.filter { it.chainage == chainage }.sortedBy { it.distance }
     }
 }
@@ -107,8 +76,7 @@ fun parseCsvStrict(file: File): Pair<List<RawRiverPoint>, String?> {
     return Pair(data, null)
 }
 
-// --- FILE HELPERS ---
-
+// --- FILE HELPERS (Unchanged) ---
 fun pickFile(): File? {
     val d = FileDialog(null as Frame?, "Select CSV", FileDialog.LOAD)
     d.setFile("*.csv")
@@ -122,27 +90,46 @@ fun pickFolder(): File? {
     return if (d.directory != null) File(d.directory) else null
 }
 
-// --- BATCH SAVE ---
+// --- HISTORY UTILS (Unchanged) ---
+fun getHistoryFile(): File {
+    val userHome = System.getProperty("user.home")
+    val appDir = File(userHome, ".lxplotter")
+    if (!appDir.exists()) appDir.mkdirs()
+    return File(appDir, "history.txt")
+}
 
-fun performBatchSave(allData: List<RiverPoint>, folder: File, type: String, startCh: Double, endCh: Double, showPre: Boolean, showPost: Boolean, hScale: Double, vScale: Double, onProgress: (String) -> Unit) {
+fun saveHistory(paths: List<String>) {
+    try {
+        getHistoryFile().writeText(paths.joinToString("\n"))
+    } catch (e: Exception) { e.printStackTrace() }
+}
+
+fun loadHistory(): List<String> {
+    val file = getHistoryFile()
+    return if (file.exists()) file.readLines().filter { it.isNotBlank() } else emptyList()
+}
+
+// --- BATCH SAVE ---
+fun performBatchSave(allData: List<RiverPoint>, folder: File, type: String, startCh: Double, endCh: Double, showPre: Boolean, showPost: Boolean, hScale: Double, vScale: Double, preColor: java.awt.Color, postColor: java.awt.Color, preDotted: Boolean, postDotted: Boolean, onProgress: (String) -> Unit) {
     if (type == "L-Section") {
         val data = getCurrentViewData(allData, type, 0.0, startCh, endCh)
-        saveGraphWithTable(data, File(folder, "L-Section_${startCh.toInt()}-${endCh.toInt()}.png"), type, 0.0, showPre, showPost, hScale, vScale)
+        saveGraphWithTable(data, File(folder, "L-Section_${startCh.toInt()}-${endCh.toInt()}.png"), type, 0.0, showPre, showPost, hScale, vScale, preColor, postColor, preDotted, postDotted)
     } else {
         val uniqueCh = allData.map { it.chainage }.distinct().sorted()
         uniqueCh.forEach { ch ->
             val data = getCurrentViewData(allData, type, ch, 0.0, 0.0)
-            saveGraphWithTable(data, File(folder, "X-Section_CH${ch.toInt()}.png"), type, ch, showPre, showPost, hScale, vScale)
+            saveGraphWithTable(data, File(folder, "X-Section_CH${ch.toInt()}.png"), type, ch, showPre, showPost, hScale, vScale, preColor, postColor, preDotted, postDotted)
             onProgress("Saved CH $ch")
         }
     }
 }
 
 // --- IMAGE SAVING ---
-
 fun saveGraphWithTable(
     points: List<RiverPoint>, file: File, type: String, chainage: Double,
-    showPre: Boolean, showPost: Boolean, hScale: Double, vScale: Double
+    showPre: Boolean, showPost: Boolean, hScale: Double, vScale: Double,
+    preColor: java.awt.Color, postColor: java.awt.Color, preDotted: Boolean, postDotted: Boolean,
+    manualMinY: Double? = null, manualMaxY: Double? = null
 ) {
     if (points.isEmpty()) return
     val imgWidth = 2000; val graphHeight = 1000; val totalHeight = graphHeight + 350
@@ -155,16 +142,12 @@ fun saveGraphWithTable(
     g.font = java.awt.Font("Arial", java.awt.Font.PLAIN, 16)
     g.drawString("Scale H 1:$hScale  V 1:$vScale", 50, 80)
 
-    val padding = 80.0
-    val gW = imgWidth - (2 * padding)
-    val gH = graphHeight - (2 * padding)
-
+    val padding = 80.0; val gW = imgWidth - (2 * padding); val gH = graphHeight - (2 * padding)
     val xValues = if (type == "L-Section") points.map { it.chainage } else points.map { it.distance }
     val yValues = (if(showPre) points.map { it.preMonsoon } else emptyList()) + (if(showPost) points.map { it.postMonsoon } else emptyList())
     val minX = xValues.minOrNull() ?: 0.0; val maxX = xValues.maxOrNull() ?: 10.0
-    val minY = (floor(yValues.minOrNull() ?: 0.0) - 1.0); val maxY = (ceil(yValues.maxOrNull() ?: 10.0) + 1.0)
+    val minY = manualMinY ?: (floor(yValues.minOrNull() ?: 0.0) - 1.0); val maxY = manualMaxY ?: (ceil(yValues.maxOrNull() ?: 10.0) + 1.0)
 
-    // Scaling
     fun mapX(v: Double) = (padding + ((v - minX) / max(maxX - minX, 1.0) * gW)).toInt()
     fun mapY(v: Double) = (padding + gH - ((v - minY) / max(maxY - minY, 1.0) * gH)).toInt()
 
@@ -178,12 +161,27 @@ fun saveGraphWithTable(
         g.drawLine(zX, padding.toInt(), zX, (padding + gH).toInt())
     }
 
-    g.stroke = java.awt.BasicStroke(3f)
-    if (showPre) { g.color = java.awt.Color.BLUE; var px = -1; var py = -1; points.forEach { p -> val x = mapX(if (type == "L-Section") p.chainage else p.distance); val y = mapY(p.preMonsoon); if (px != -1) g.drawLine(px, py, x, y); g.fillOval(x-4, y-4, 8, 8); px = x; py = y } }
-    if (showPost) { g.color = java.awt.Color.RED; var px = -1; var py = -1; points.forEach { p -> val x = mapX(if (type == "L-Section") p.chainage else p.distance); val y = mapY(p.postMonsoon); if (px != -1) g.drawLine(px, py, x, y); g.fillOval(x-4, y-4, 8, 8); px = x; py = y } }
+    // Helper to draw series
+    fun drawSeries(getColor: (RiverPoint) -> Double, color: java.awt.Color, isDotted: Boolean) {
+        g.color = color
+        val stroke = if(isDotted) java.awt.BasicStroke(3f, java.awt.BasicStroke.CAP_BUTT, java.awt.BasicStroke.JOIN_MITER, 10f, floatArrayOf(10f, 10f), 0f) else java.awt.BasicStroke(3f)
+        g.stroke = stroke
+        var px = -1; var py = -1
+        points.forEach { p ->
+            val x = mapX(if (type == "L-Section") p.chainage else p.distance)
+            val y = mapY(getColor(p))
+            if (px != -1) g.drawLine(px, py, x, y)
+            g.fillOval(x-4, y-4, 8, 8)
+            px = x; py = y
+        }
+    }
 
+    if (showPre) drawSeries({ it.preMonsoon }, preColor, preDotted)
+    if (showPost) drawSeries({ it.postMonsoon }, postColor, postDotted)
+
+    // Table Logic: Correct Headers
     val tableTop = graphHeight + 50; g.color = java.awt.Color.BLACK; g.stroke = java.awt.BasicStroke(1f); g.font = java.awt.Font("Arial", java.awt.Font.PLAIN, 12)
-    val labels = listOf("Post-Monsoon", "Pre-Monsoon", if(type=="L-Section") "Chainage" else "Offset")
+    val labels = listOf("Post Monsoon:", "Pre Monsoon:", "Chainage in mt:")
     labels.forEachIndexed { i, label -> val y = tableTop + (i + 1) * 30; g.drawString(label, padding.toInt(), y - 10); g.drawLine(padding.toInt(), y, (padding + gW).toInt(), y) }
     g.drawLine(padding.toInt(), tableTop, (padding + gW).toInt(), tableTop)
 
@@ -191,8 +189,8 @@ fun saveGraphWithTable(
     for (i in points.indices step step) {
         val p = points[i]
         g.drawLine(colX, tableTop, colX, tableTop + 90)
-        g.color = java.awt.Color.RED; g.drawString(String.format("%.1f", p.postMonsoon), colX + 5, tableTop + 20)
-        g.color = java.awt.Color.BLUE; g.drawString(String.format("%.1f", p.preMonsoon), colX + 5, tableTop + 50)
+        g.color = postColor; g.drawString(String.format("%.1f", p.postMonsoon), colX + 5, tableTop + 20)
+        g.color = preColor; g.drawString(String.format("%.1f", p.preMonsoon), colX + 5, tableTop + 50)
         g.color = java.awt.Color.BLACK; val distVal = if(type=="L-Section") p.chainage else p.distance
         g.drawString(String.format("%.0f", distVal), colX + 5, tableTop + 80)
         colX += 50; if(colX > imgWidth - padding) break

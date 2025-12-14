@@ -1,10 +1,9 @@
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -17,25 +16,42 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.io.File
 
+// --- HELPER FOR CUSTOM BORDERS ---
+fun Modifier.customBorder(
+    width: Dp,
+    color: Color,
+    top: Boolean = false,
+    bottom: Boolean = false,
+    start: Boolean = false,
+    end: Boolean = false
+) = this.drawBehind {
+    val strokeWidth = width.toPx()
+    if (top) drawLine(color, Offset(0f, 0f), Offset(size.width, 0f), strokeWidth)
+    if (bottom) drawLine(color, Offset(0f, size.height), Offset(size.width, size.height), strokeWidth)
+    if (start) drawLine(color, Offset(0f, 0f), Offset(0f, size.height), strokeWidth)
+    if (end) drawLine(color, Offset(size.width, 0f), Offset(size.width, size.height), strokeWidth)
+}
+
+// --- HEADER ---
 @Composable
 fun AppHeader(
     status: String,
     onLoad: () -> Unit,
     onSaveCurrent: () -> Unit,
     onBatchSave: () -> Unit,
-    onGenerateReport: () -> Unit,
-    onToggleTheme: () -> Unit,
-    isDarkMode: Boolean
+    onGenerateReport: () -> Unit
 ) {
     var showDownloadMenu by remember { mutableStateOf(false) }
 
     Surface(
         color = MaterialTheme.colorScheme.primaryContainer,
-        modifier = Modifier.fillMaxWidth().height(60.dp)
+        modifier = Modifier.fillMaxWidth().height(56.dp),
+        shadowElevation = 4.dp
     ) {
         Row(
             modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
@@ -43,48 +59,67 @@ fun AppHeader(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("LX Plotter", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                Icon(Icons.Default.Timeline, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                Spacer(Modifier.width(8.dp))
+                Text("LX Plotter", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
                 Spacer(Modifier.width(16.dp))
-                Text(status, fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
+                Text(status, fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onLoad) { Icon(Icons.Default.Add, null); Spacer(Modifier.width(4.dp)); Text("Load") }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                // 1. LOAD
+                Button(onClick = onLoad, contentPadding = PaddingValues(horizontal = 12.dp), shape = RoundedCornerShape(8.dp)) {
+                    Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Load")
+                }
+
+                // 2. DOWNLOAD
                 Box {
-                    TextButton(onClick = { showDownloadMenu = true }) { Icon(Icons.Default.ArrowDropDown, null); Spacer(Modifier.width(4.dp)); Text("Download") }
+                    TextButton(onClick = { showDownloadMenu = true }) {
+                        Icon(Icons.Default.Download, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Download")
+                    }
                     DropdownMenu(expanded = showDownloadMenu, onDismissRequest = { showDownloadMenu = false }) {
-                        DropdownMenuItem(text = { Text("Download Current View") }, onClick = { onSaveCurrent(); showDownloadMenu = false })
-                        DropdownMenuItem(text = { Text("Download All (Batch)") }, onClick = { onBatchSave(); showDownloadMenu = false })
+                        DropdownMenuItem(text = { Text("Current View (.png)") }, onClick = { onSaveCurrent(); showDownloadMenu = false })
+                        DropdownMenuItem(text = { Text("All Views (Batch)") }, onClick = { onBatchSave(); showDownloadMenu = false })
                     }
                 }
-                HeaderIconBtn(Icons.Default.Edit, "Report", onGenerateReport)
-                HeaderIconBtn(if (isDarkMode) Icons.Default.Brightness7 else Icons.Default.Brightness4, if (isDarkMode) "Light Mode" else "Dark Mode", onToggleTheme)
+
+                // 3. DRAWING (Void)
+                IconButton(onClick = { /* Do nothing */ }) {
+                    Icon(Icons.Default.Brush, "Drawing", tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                }
+
+                // 4. REPORT (Void but wired)
+                IconButton(onClick = onGenerateReport) {
+                    Icon(Icons.Default.Description, "Report", tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                }
             }
         }
     }
 }
 
-@Composable
-fun HeaderIconBtn(icon: ImageVector, label: String, onClick: () -> Unit) {
-    TextButton(onClick = onClick) {
-        Icon(icon, null, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(4.dp))
-        Text(label)
-    }
-}
-
+// --- LEFT PANEL ---
 @Composable
 fun LeftPanel(history: List<String>, onHistoryItemClick: (String) -> Unit, onDeleteHistoryItem: (String) -> Unit) {
     val borderColor = MaterialTheme.colorScheme.outlineVariant
     Column(
-        modifier = Modifier.width(250.dp).fillMaxHeight().background(MaterialTheme.colorScheme.surface)
+        modifier = Modifier
+            .width(260.dp)
+            .fillMaxHeight()
+            .background(MaterialTheme.colorScheme.surface)
             .drawBehind { drawLine(borderColor, Offset(size.width, 0f), Offset(size.width, size.height), 1.dp.toPx()) }
-            .padding(16.dp)
+            .padding(12.dp)
     ) {
-        Text("History", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(16.dp))
+        Text("History", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.height(12.dp))
+
         if (history.isEmpty()) {
-            Text("No recent files", fontSize = 12.sp, color = Color.Gray)
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("No recent files", fontSize = 12.sp, color = Color.Gray)
+            }
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(history) { path -> HistoryItemRow(path, onHistoryItemClick, onDeleteHistoryItem) }
@@ -97,20 +132,71 @@ fun LeftPanel(history: List<String>, onHistoryItemClick: (String) -> Unit, onDel
 fun HistoryItemRow(path: String, onClick: (String) -> Unit, onDelete: (String) -> Unit) {
     val file = File(path)
     var showMenu by remember { mutableStateOf(false) }
-    Card(modifier = Modifier.fillMaxWidth().clickable { onClick(path) }) {
-        Row(modifier = Modifier.padding(8.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+
+    Card(
+        shape = RoundedCornerShape(8.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        modifier = Modifier.fillMaxWidth().clickable { onClick(path) }
+    ) {
+        Row(
+            modifier = Modifier.padding(8.dp).fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
             Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.DateRange, null, modifier = Modifier.size(16.dp))
+                Icon(Icons.Default.InsertDriveFile, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.secondary)
                 Spacer(Modifier.width(8.dp))
                 Column {
-                    Text(file.name, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1)
-                    Text(file.parent ?: "", fontSize = 10.sp, maxLines = 1)
+                    Text(file.name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                    Text(file.parent ?: "", fontSize = 10.sp, maxLines = 1, color = Color.Gray)
                 }
             }
             Box {
-                IconButton(onClick = { showMenu = true }) { Icon(Icons.Default.MoreVert, null) }
+                IconButton(onClick = { showMenu = true }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.MoreVert, null, modifier = Modifier.size(16.dp)) }
                 DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                    DropdownMenuItem(text = { Text("Delete", color = Color.Red) }, leadingIcon = { Icon(Icons.Default.Delete, null, tint = Color.Red) }, onClick = { onDelete(path); showMenu = false })
+                    DropdownMenuItem(
+                        text = { Text("Delete", color = Color.Red) },
+                        leadingIcon = { Icon(Icons.Default.Delete, null, tint = Color.Red, modifier = Modifier.size(16.dp)) },
+                        onClick = { onDelete(path); showMenu = false }
+                    )
+                }
+            }
+        }
+    }
+}
+
+// --- DATA TABLE ---
+@Composable
+fun CompactDataTable(data: List<RiverPoint>, type: String, preColor: Color, postColor: Color) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(130.dp)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(4.dp))
+            .background(Color.White, RoundedCornerShape(4.dp))
+    ) {
+        // Fixed Header
+        Column(
+            modifier = Modifier
+                .width(140.dp)
+                .fillMaxHeight()
+                .background(MaterialTheme.colorScheme.surfaceContainerLow)
+                .customBorder(1.dp, MaterialTheme.colorScheme.outlineVariant, end = true)
+        ) {
+            HeaderCell("Parameter", Color.Black, true)
+            HeaderCell("Post Monsoon:", postColor)
+            HeaderCell("Pre Monsoon:", preColor)
+            HeaderCell(if (type == "L-Section") "Chainage in mt:" else "Offset in mt:", Color.Black)
+        }
+
+        // Scrollable Data
+        Row(modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState())) {
+            data.forEach { point ->
+                Column(modifier = Modifier.width(80.dp).fillMaxHeight()) {
+                    DataCell("", Color.Transparent, true)
+                    DataCell(String.format("%.2f", point.postMonsoon), postColor)
+                    DataCell(String.format("%.2f", point.preMonsoon), preColor)
+                    DataCell(String.format("%.1f", if (type == "L-Section") point.chainage else point.distance), Color.Black)
                 }
             }
         }
@@ -118,25 +204,89 @@ fun HistoryItemRow(path: String, onClick: (String) -> Unit, onDelete: (String) -
 }
 
 @Composable
-fun TableCell(text: String, isHeader: Boolean = false, color: Color = Color.Black) {
+fun HeaderCell(text: String, color: Color, isTop: Boolean = false) {
     Box(
-        modifier = Modifier.fillMaxWidth().height(30.dp).border(BorderStroke(0.5.dp, Color.LightGray)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(32.dp)
+            .customBorder(0.5.dp, Color.LightGray.copy(alpha = 0.5f), bottom = true)
+            .background(if(isTop) Color.LightGray.copy(alpha = 0.2f) else Color.Transparent),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Text(text, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = color, modifier = Modifier.padding(start = 8.dp))
+    }
+}
+
+@Composable
+fun DataCell(text: String, color: Color, isTop: Boolean = false) {
+    // Make cell scrollable if value is too big
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(32.dp)
+            .customBorder(0.5.dp, Color.LightGray.copy(alpha = 0.5f), bottom = true, start = true)
+            .background(if(isTop) Color.LightGray.copy(alpha = 0.2f) else Color.Transparent)
+            .horizontalScroll(rememberScrollState()),
         contentAlignment = Alignment.Center
     ) {
-        Text(text, fontSize = 11.sp, fontWeight = if (isHeader) FontWeight.Bold else FontWeight.Normal, color = color, textAlign = TextAlign.Center)
+        Text(text, fontSize = 11.sp, color = color, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 4.dp))
+    }
+}
+
+// --- UTILS ---
+@Composable
+fun StyleSelector(label: String, isDotted: Boolean, onDottedChange: (Boolean) -> Unit, color: Color, onColorChange: (Color) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val colors = listOf(Color.Red, Color.Blue, Color(0xFF006400), Color.Black, Color.Magenta, Color.Cyan)
+
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(end = 12.dp)) {
+        Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(end = 8.dp))
+        Box {
+            Box(
+                modifier = Modifier
+                    .size(16.dp)
+                    .background(color, androidx.compose.foundation.shape.CircleShape)
+                    .border(1.dp, Color.Gray, androidx.compose.foundation.shape.CircleShape)
+                    .clickable { expanded = true }
+            )
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                colors.forEach { c ->
+                    DropdownMenuItem(
+                        text = { Box(Modifier.size(20.dp).background(c, androidx.compose.foundation.shape.CircleShape)) },
+                        onClick = { onColorChange(c); expanded = false }
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.width(8.dp))
+        Surface(
+            shape = RoundedCornerShape(4.dp),
+            border = BorderStroke(1.dp, Color.Gray),
+            color = Color.Transparent,
+            modifier = Modifier.height(24.dp).clickable { onDottedChange(!isDotted) }
+        ) {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 8.dp)) {
+                Text(if (isDotted) "Dotted" else "Solid", fontSize = 10.sp)
+            }
+        }
     }
 }
 
 @Composable
 fun ScaleInput(label: String, value: Double, onValueChange: (Double) -> Unit) {
-    Column {
-        Text(label, fontSize = 10.sp)
-        OutlinedTextField(
-            value = if(value == 0.0) "" else value.toInt().toString(),
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(label, fontSize = 11.sp)
+        Spacer(Modifier.width(4.dp))
+        BasicTextField(
+            value = if (value == 0.0) "" else value.toInt().toString(),
             onValueChange = { onValueChange(it.toDoubleOrNull() ?: 0.0) },
-            modifier = Modifier.width(70.dp).height(50.dp),
-            singleLine = true,
-            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
+            textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, textAlign = TextAlign.Center),
+            modifier = Modifier
+                .width(50.dp)
+                .height(24.dp)
+                .background(Color.White, RoundedCornerShape(4.dp))
+                .border(1.dp, Color.Gray, RoundedCornerShape(4.dp))
+                .wrapContentHeight(Alignment.CenterVertically)
         )
     }
 }
