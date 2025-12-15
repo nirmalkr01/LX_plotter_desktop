@@ -1,9 +1,9 @@
 data class RiverPoint(
     val chainage: Double,
-    val distance: Double,     // Centered Distance
+    val distance: Double,     // This is the Shifted/Centered Offset
     val preMonsoon: Double,
     val postMonsoon: Double,
-    val originalDistance: Double // Original Distance (for reference)
+    val originalDistance: Double // Kept for reference
 )
 
 data class RawRiverPoint(
