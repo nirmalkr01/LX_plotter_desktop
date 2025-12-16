@@ -11,6 +11,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
@@ -18,6 +19,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlin.math.ceil
@@ -39,7 +41,13 @@ fun EngineeringCanvas(
     preColor: Color,
     postColor: Color,
     preDotted: Boolean,
-    postDotted: Boolean
+    postDotted: Boolean,
+    preWidth: Float,
+    postWidth: Float,
+    preShowPoints: Boolean,
+    postShowPoints: Boolean,
+    showRuler: Boolean,
+    showGrid: Boolean
 ) {
     if (points.isEmpty()) return
 
@@ -108,7 +116,32 @@ fun EngineeringCanvas(
                 val zeroX = mapX(minX)
                 drawLine(Color.Black, Offset(zeroX, padding.toFloat()), Offset(zeroX, h - padding.toFloat()), 2f)
 
-                // Draw X-Axis Ticks & Labels
+                val gridColor = Color.LightGray.copy(alpha = 0.5f)
+
+                // --- STATIC GRIDLINES (REAL GRAPH PAPER) ---
+                // Independent of graph scale, just physical CMs inside the axis zone
+                if (showGrid) {
+                    val axisStartX = padding.toFloat()
+                    val axisEndX = (size.width - padding).toFloat()
+                    val axisStartY = zeroY
+                    val axisEndY = padding.toFloat() // Y goes up, so end is padding
+
+                    // Vertical Grid (every 1 cm physical)
+                    var xGrid = axisStartX + PX_PER_CM.toFloat()
+                    while (xGrid < axisEndX) {
+                        drawLine(gridColor, Offset(xGrid, axisStartY), Offset(xGrid, axisEndY), 1f)
+                        xGrid += PX_PER_CM.toFloat()
+                    }
+
+                    // Horizontal Grid (every 1 cm physical)
+                    var yGrid = axisStartY - PX_PER_CM.toFloat()
+                    while (yGrid > axisEndY) {
+                        drawLine(gridColor, Offset(axisStartX, yGrid), Offset(axisEndX, yGrid), 1f)
+                        yGrid -= PX_PER_CM.toFloat()
+                    }
+                }
+
+                // Draw X-Axis Ticks & Labels (Dynamic)
                 val distinctX = xValues.distinct().sorted()
                 distinctX.forEach { xVal ->
                     val xPos = mapX(xVal)
@@ -136,7 +169,7 @@ fun EngineeringCanvas(
                     }
                 }
 
-                // Draw Y-Axis Ticks
+                // Draw Y-Axis Ticks (Dynamic)
                 val ySteps = ((maxY - minY)).toInt()
                 for(i in 0..ySteps) {
                     val yVal = minY + i
@@ -153,7 +186,7 @@ fun EngineeringCanvas(
                 }
 
                 // Draw Data Series
-                fun drawSeries(getColor: (RiverPoint) -> Double, color: Color, isDotted: Boolean) {
+                fun drawSeries(getColor: (RiverPoint) -> Double, color: Color, isDotted: Boolean, strokeW: Float, showPoints: Boolean) {
                     val path = Path()
                     var first = true
                     val sortedPoints = points.sortedBy { if (isLSection) it.chainage else it.distance }
@@ -165,15 +198,83 @@ fun EngineeringCanvas(
 
                         if (x <= size.width && y >= 0) {
                             if (first) { path.moveTo(x, y); first = false } else { path.lineTo(x, y) }
-                            drawCircle(color, radius = 3f, center = Offset(x, y))
+                            if (showPoints) {
+                                drawCircle(color, radius = strokeW + 2f, center = Offset(x, y))
+                            }
                         }
                     }
                     val effect = if(isDotted) PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f) else null
-                    drawPath(path, color, style = Stroke(width = 2f, pathEffect = effect))
+                    drawPath(path, color, style = Stroke(width = strokeW, pathEffect = effect))
                 }
 
-                if (showPre) drawSeries({ it.preMonsoon }, preColor, preDotted)
-                if (showPost) drawSeries({ it.postMonsoon }, postColor, postDotted)
+                if (showPre) drawSeries({ it.preMonsoon }, preColor, preDotted, preWidth, preShowPoints)
+                if (showPost) drawSeries({ it.postMonsoon }, postColor, postDotted, postWidth, postShowPoints)
+
+                // --- STATIC RULER (REAL SCALE) ---
+                if (showRuler) {
+                    val rulerWidth = 35f
+                    val rulerBg = Color(0xFFF5F5F5) // Very Light Gray
+                    val tickColor = Color.Black
+
+                    // 1. TOP RULER (X-Axis) - Independent of Graph
+                    // Start 0 at Axis Origin (padding)
+                    val axisOriginX = padding.toFloat()
+
+                    drawRect(rulerBg, topLeft = Offset(0f, 0f), size = Size(size.width, rulerWidth))
+                    drawLine(Color.Gray, Offset(0f, rulerWidth), Offset(size.width, rulerWidth))
+
+                    // Draw from 0cm upwards based on PX_PER_CM
+                    val totalCmX = ((size.width - axisOriginX) / PX_PER_CM).toInt()
+
+                    for (i in 0..totalCmX) {
+                        val xPos = axisOriginX + (i * PX_PER_CM).toFloat()
+                        if (xPos <= size.width) {
+                            // Main Tick (1cm)
+                            drawLine(tickColor, Offset(xPos, 0f), Offset(xPos, rulerWidth * 0.6f), 1.5f)
+                            drawText(textMeasurer, "$i", Offset(xPos + 3f, 2f), TextStyle(fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color.Black))
+
+                            // Subdivisions (1mm)
+                            for (sub in 1..9) {
+                                val xSub = xPos + (sub * (PX_PER_CM / 10.0)).toFloat()
+                                if (xSub <= size.width) {
+                                    val hLine = if (sub == 5) rulerWidth * 0.4f else rulerWidth * 0.25f
+                                    drawLine(tickColor, Offset(xSub, 0f), Offset(xSub, hLine), 1f)
+                                }
+                            }
+                        }
+                    }
+
+                    // 2. LEFT RULER (Y-Axis) - Independent of Graph
+                    // Start 0 at Axis Origin (zeroY)
+                    val axisOriginY = zeroY
+
+                    drawRect(rulerBg, topLeft = Offset(0f, 0f), size = Size(rulerWidth, size.height))
+                    drawLine(Color.Gray, Offset(rulerWidth, 0f), Offset(rulerWidth, size.height))
+
+                    val totalCmY = ((axisOriginY - padding) / PX_PER_CM).toInt() // Going UP from bottom
+
+                    for (i in 0..totalCmY) {
+                        val yPos = axisOriginY - (i * PX_PER_CM).toFloat()
+                        if (yPos >= 0) {
+                            // Main Tick
+                            drawLine(tickColor, Offset(0f, yPos), Offset(rulerWidth * 0.6f, yPos), 1.5f)
+                            drawText(textMeasurer, "$i", Offset(2f, yPos + 2f), TextStyle(fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color.Black))
+
+                            // Subdivisions
+                            for (sub in 1..9) {
+                                val ySub = yPos - (sub * (PX_PER_CM / 10.0)).toFloat()
+                                if (ySub >= 0) {
+                                    val wLine = if (sub == 5) rulerWidth * 0.4f else rulerWidth * 0.25f
+                                    drawLine(tickColor, Offset(0f, ySub), Offset(wLine, ySub), 1f)
+                                }
+                            }
+                        }
+                    }
+
+                    // Corner Box
+                    drawRect(Color.White, topLeft = Offset(0f,0f), size = Size(rulerWidth, rulerWidth))
+                    drawText(textMeasurer, "cm", Offset(8f, 8f), TextStyle(fontSize=10.sp, fontWeight = FontWeight.Bold))
+                }
             }
         }
 

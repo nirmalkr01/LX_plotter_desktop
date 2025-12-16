@@ -1,10 +1,10 @@
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -29,9 +29,23 @@ fun main() = application {
 
 fun Color.toAwtColor(): java.awt.Color = java.awt.Color(this.red, this.green, this.blue, this.alpha)
 
+enum class ControlGroup {
+    VIEW,
+    STYLE,
+    SCALE,
+    RANGE
+}
+
+enum class Screen {
+    MAIN,
+    DOWNLOAD_GRAPH
+}
+
 @Composable
 fun DesktopApp() {
     val scope = rememberCoroutineScope()
+    var currentScreen by remember { mutableStateOf(Screen.MAIN) }
+
     var riverData by remember { mutableStateOf<List<RiverPoint>>(emptyList()) }
     var rawRiverData by remember { mutableStateOf<List<RawRiverPoint>>(emptyList()) }
     var statusMessage by remember { mutableStateOf("No file loaded") }
@@ -39,9 +53,16 @@ fun DesktopApp() {
 
     // --- STATES ---
     var showInstructions by remember { mutableStateOf(false) }
+
+    // --- CSV MAPPING STATES ---
+    var showCsvMapping by remember { mutableStateOf(false) }
+    var pendingFile by remember { mutableStateOf<File?>(null) }
+    var csvHeaders by remember { mutableStateOf<List<String>>(emptyList()) }
+    var csvPreviewRows by remember { mutableStateOf<List<List<String>>>(emptyList()) }
+
     var useThalweg by remember { mutableStateOf(true) } // Default: With Thalweg
 
-    var selectedGraphType by remember { mutableStateOf("X-Section") } // Default X-Section first
+    var selectedGraphType by remember { mutableStateOf("X-Section") }
     var selectedChainage by remember { mutableStateOf(0.0) }
     var showPre by remember { mutableStateOf(true) }
     var showPost by remember { mutableStateOf(true) }
@@ -51,6 +72,12 @@ fun DesktopApp() {
     var postColor by remember { mutableStateOf(Color.Red) }
     var preDotted by remember { mutableStateOf(true) }
     var postDotted by remember { mutableStateOf(false) }
+
+    // Thickness & Markers
+    var preWidth by remember { mutableStateOf(2f) }
+    var postWidth by remember { mutableStateOf(2f) }
+    var preShowPoints by remember { mutableStateOf(true) }
+    var postShowPoints by remember { mutableStateOf(true) }
 
     // INDEPENDENT SCALES
     var lHScale by remember { mutableStateOf(2000.0) }
@@ -64,218 +91,337 @@ fun DesktopApp() {
     var startChainage by remember { mutableStateOf(0.0) }
     var endChainage by remember { mutableStateOf(0.0) }
 
-    // Re-process data when Thalweg Toggle changes
-    LaunchedEffect(useThalweg, rawRiverData) {
+    // RIBBON STATES
+    var activeControlGroup by remember { mutableStateOf(ControlGroup.VIEW) }
+    var isRibbonOpen by remember { mutableStateOf(true) }
+    var showRuler by remember { mutableStateOf(false) }
+    var showGrid by remember { mutableStateOf(false) }
+
+    // MANUAL MODE STATES
+    var isManualMode by remember { mutableStateOf(false) }
+    var manualZeroOverrides by remember { mutableStateOf(mapOf<Double, String>()) }
+
+    // Re-process data when dependencies change
+    LaunchedEffect(useThalweg, rawRiverData, manualZeroOverrides) {
         if (rawRiverData.isNotEmpty()) {
-            riverData = processAndCenterData(rawRiverData, useThalweg)
+            riverData = processAndCenterData(rawRiverData, useThalweg, manualZeroOverrides)
             if (riverData.isNotEmpty()) {
-                // Calculate limits
                 minChainage = riverData.minOf { it.chainage }
                 maxChainage = riverData.maxOf { it.chainage }
 
-                // COMMAND EXECUTION: Always start X-Section CH from minimum
-                selectedChainage = minChainage
-
-                startChainage = minChainage
-                endChainage = maxChainage
+                if(selectedChainage == 0.0) {
+                    selectedChainage = minChainage
+                    startChainage = minChainage
+                    endChainage = maxChainage
+                }
             }
         }
     }
 
-    fun loadFile(file: File) {
+    // --- STEP 1: PREPARE FILE ---
+    fun prepareFileLoad(file: File) {
         if (!file.exists()) {
             statusMessage = "File not found"
-            history = history.filter { it != file.absolutePath }
-            saveHistory(history)
             return
         }
-        val (data, error) = parseCsvStrict(file)
+        val (headers, rows) = readCsvPreview(file)
+        if (headers.isEmpty()) {
+            statusMessage = "Empty or Invalid CSV"
+            return
+        }
+        csvHeaders = headers
+        csvPreviewRows = rows
+        pendingFile = file
+        showCsvMapping = true
+    }
+
+    // --- STEP 2: FINISH LOAD WITH MAPPING ---
+    fun finishLoading(colMapping: Map<String, Int>) {
+        val file = pendingFile ?: return
+        val (data, error) = parseCsvMapped(file, colMapping)
+
         if (error != null) {
             statusMessage = error
         } else {
-            rawRiverData = data // Store raw data to re-process later
+            rawRiverData = data
+            manualZeroOverrides = emptyMap()
+            isManualMode = false
+            selectedChainage = 0.0
             statusMessage = "Loaded ${file.name}"
             val newHistory = (listOf(file.absolutePath) + history).distinct().take(15)
             history = newHistory
             saveHistory(newHistory)
         }
+        showCsvMapping = false
+        pendingFile = null
     }
 
     if (showInstructions) {
         InstructionDialog(onDismiss = { showInstructions = false })
     }
 
-    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        Row(modifier = Modifier.fillMaxSize()) {
-            LeftPanel(
-                history = history,
-                onHistoryItemClick = { loadFile(File(it)) },
-                onDeleteHistoryItem = { path ->
-                    // COMMAND EXECUTION: Do not delete file from destination.
-                    // Only delete from app history and promote user to new phase (Reset).
+    if (showCsvMapping) {
+        CsvMappingDialog(
+            headers = csvHeaders,
+            previewRows = csvPreviewRows,
+            onDismiss = { showCsvMapping = false },
+            onConfirm = { mapping -> finishLoading(mapping) }
+        )
+    }
 
-                    history = history.filter { it != path }
-                    saveHistory(history)
-
-                    // Reset State (Promote to "Upload CSV" phase)
-                    riverData = emptyList()
-                    rawRiverData = emptyList()
-                    selectedChainage = 0.0
-                    statusMessage = "Removed from History. Please load a file."
-                }
+    // --- SCREEN SWITCHING ---
+    when (currentScreen) {
+        Screen.DOWNLOAD_GRAPH -> {
+            GraphDownloadScreen(
+                riverData = riverData,
+                initialGraphType = selectedGraphType,
+                initialChainage = selectedChainage,
+                startCh = startChainage,
+                endCh = endChainage,
+                lHScale = lHScale, lVScale = lVScale,
+                xHScale = xHScale, xVScale = xVScale,
+                showPre = showPre, showPost = showPost,
+                preColor = preColor.toAwtColor(), postColor = postColor.toAwtColor(),
+                preDotted = preDotted, postDotted = postDotted,
+                preWidth = preWidth, postWidth = postWidth,
+                preShowPoints = preShowPoints, postShowPoints = postShowPoints,
+                showGrid = showGrid,
+                onBack = { currentScreen = Screen.MAIN }
             )
+        }
+        Screen.MAIN -> {
+            Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                Row(modifier = Modifier.fillMaxSize()) {
+                    LeftPanel(
+                        history = history,
+                        onHistoryItemClick = { prepareFileLoad(File(it)) },
+                        onDeleteHistoryItem = { path ->
+                            history = history.filter { it != path }
+                            saveHistory(history)
+                            if (pendingFile?.absolutePath == path) pendingFile = null
+                        }
+                    )
 
-            Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                AppHeader(
-                    status = statusMessage,
-                    onLoad = { pickFile()?.let { loadFile(it) } },
-                    onSaveCurrent = {
+                    Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                        AppHeader(
+                            status = statusMessage,
+                            onLoad = { pickFile()?.let { prepareFileLoad(it) } },
+                            onDownloadGraph = {
+                                if (riverData.isNotEmpty()) {
+                                    currentScreen = Screen.DOWNLOAD_GRAPH
+                                } else {
+                                    statusMessage = "Load data first"
+                                }
+                            },
+                            onDownloadCsv = {
+                                if(riverData.isNotEmpty()) pickSaveFile("modified_data.csv")?.let { file ->
+                                    scope.launch(Dispatchers.IO) {
+                                        saveCsv(riverData, file)
+                                        statusMessage = "CSV Saved: ${file.name}"
+                                    }
+                                }
+                            },
+                            onGenerateReport = {
+                                // Report Logic (Disabled as per instruction "make it null")
+                            },
+                            onShowInstructions = { showInstructions = true }
+                        )
+
                         if (riverData.isNotEmpty()) {
-                            pickFolder()?.let { folder ->
-                                scope.launch {
-                                    statusMessage = "Saving..."
-                                    try {
-                                        val successMsg = withContext(Dispatchers.IO) {
-                                            val data = getCurrentViewData(riverData, selectedGraphType, selectedChainage, startChainage, endChainage)
-                                            val file = File(folder, "Graph_${System.currentTimeMillis()}.png")
-                                            // Pass correct scale based on active view
-                                            val h = if(selectedGraphType == "L-Section") lHScale else xHScale
-                                            val v = if(selectedGraphType == "L-Section") lVScale else xVScale
-
-                                            saveGraphWithTable(
-                                                data, file, selectedGraphType, selectedChainage, showPre, showPost, h, v,
-                                                preColor.toAwtColor(), postColor.toAwtColor(), preDotted, postDotted
-                                            )
-                                            "Saved to ${file.name}"
+                            // --- HANGING RIBBON CONTROL ---
+                            Surface(
+                                modifier = Modifier.fillMaxWidth().animateContentSize(),
+                                color = MaterialTheme.colorScheme.surfaceContainer,
+                                shadowElevation = 4.dp,
+                                shape = RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp)
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    if (isRibbonOpen) {
+                                        // 1. GROUP TABS
+                                        Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp), horizontalArrangement = Arrangement.Center) {
+                                            ControlGroup.entries.forEach { group ->
+                                                Spacer(Modifier.width(4.dp))
+                                                FilterChip(
+                                                    selected = activeControlGroup == group,
+                                                    onClick = { activeControlGroup = group },
+                                                    label = { Text(group.name.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }) }
+                                                )
+                                                Spacer(Modifier.width(4.dp))
+                                            }
                                         }
-                                        statusMessage = successMsg
-                                    } catch (e: Exception) {
-                                        statusMessage = "Error: ${e.message}"
+                                        HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+
+                                        // 2. ACTIVE CONTROLS ROW
+                                        Box(modifier = Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) {
+                                            when (activeControlGroup) {
+                                                ControlGroup.VIEW -> {
+                                                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                            Text("Profile:", fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(end=4.dp))
+                                                            SegmentedButtonRow {
+                                                                OutlinedButton(onClick = { selectedGraphType = "X-Section" }, shape = RoundedCornerShape(topStart = 4.dp, bottomStart = 4.dp), colors = if(selectedGraphType=="X-Section") ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer) else ButtonDefaults.outlinedButtonColors()) { Text("X-Sec") }
+                                                                OutlinedButton(onClick = { selectedGraphType = "L-Section" }, shape = RoundedCornerShape(topEnd = 4.dp, bottomEnd = 4.dp), colors = if(selectedGraphType=="L-Section") ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer) else ButtonDefaults.outlinedButtonColors()) { Text("L-Sec") }
+                                                            }
+                                                        }
+                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                            Text("Series:", fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(end=4.dp))
+                                                            FilterChip(selected = showPre, onClick = { showPre = !showPre }, label = { Text("Pre") }, leadingIcon = { Icon(Icons.Default.Check, null, tint = preColor) })
+                                                            Spacer(Modifier.width(4.dp))
+                                                            FilterChip(selected = showPost, onClick = { showPost = !showPost }, label = { Text("Post") }, leadingIcon = { Icon(Icons.Default.Check, null, tint = postColor) })
+                                                        }
+                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                            Text("Ref:", fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(end=4.dp))
+                                                            FilterChip(selected = useThalweg, onClick = { useThalweg = true }, label = { Text("Thalweg") })
+                                                            Spacer(Modifier.width(4.dp))
+                                                            FilterChip(selected = !useThalweg, onClick = { useThalweg = false }, label = { Text("Center") })
+                                                        }
+                                                        Box(Modifier.width(1.dp).height(30.dp).background(Color.Gray))
+                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                            IconToggleButton(checked = showRuler, onCheckedChange = { showRuler = it }) {
+                                                                Icon(Icons.Default.Straighten, contentDescription = "Ruler", tint = if(showRuler) MaterialTheme.colorScheme.primary else Color.Gray)
+                                                            }
+                                                            IconToggleButton(checked = showGrid, onCheckedChange = { showGrid = it }) {
+                                                                Icon(Icons.Default.GridOn, contentDescription = "Grid", tint = if(showGrid) MaterialTheme.colorScheme.primary else Color.Gray)
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                ControlGroup.STYLE -> {
+                                                    Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                                                        StyleSelector(
+                                                            label = "Pre:",
+                                                            isDotted = preDotted, onDottedChange = { preDotted = it },
+                                                            color = preColor, onColorChange = { preColor = it },
+                                                            thickness = preWidth, onThicknessChange = { preWidth = it },
+                                                            showPoints = preShowPoints, onShowPointsChange = { preShowPoints = it }
+                                                        )
+                                                        Box(Modifier.width(1.dp).height(30.dp).background(Color.Gray))
+                                                        StyleSelector(
+                                                            label = "Post:",
+                                                            isDotted = postDotted, onDottedChange = { postDotted = it },
+                                                            color = postColor, onColorChange = { postColor = it },
+                                                            thickness = postWidth, onThicknessChange = { postWidth = it },
+                                                            showPoints = postShowPoints, onShowPointsChange = { postShowPoints = it }
+                                                        )
+                                                    }
+                                                }
+                                                ControlGroup.SCALE -> {
+                                                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                                        Text("Scale Settings:", fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.CenterVertically))
+                                                        if (selectedGraphType == "L-Section") {
+                                                            ScaleInput("L-H Scale:", lHScale) { lHScale = it }
+                                                            ScaleInput("L-V Scale:", lVScale) { lVScale = it }
+                                                        } else {
+                                                            ScaleInput("X-H Scale:", xHScale) { xHScale = it }
+                                                            ScaleInput("X-V Scale:", xVScale) { xVScale = it }
+                                                        }
+                                                    }
+                                                }
+                                                ControlGroup.RANGE -> {
+                                                    if (selectedGraphType == "L-Section") {
+                                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                                            Text("L-Section Range:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                                            ScaleInput("Start", startChainage) { startChainage = it }
+                                                            ScaleInput("End", endChainage) { endChainage = it }
+
+                                                            if(startChainage < minChainage || endChainage > maxChainage || startChainage > endChainage) {
+                                                                Text("(Invalid!)", fontSize = 11.sp, color = Color.Red)
+                                                            } else {
+                                                                Text("(Min:$minChainage - Max:$maxChainage)", fontSize = 11.sp, color = Color.Gray)
+                                                            }
+                                                        }
+                                                    } else {
+                                                        val uniqueChainages = remember(riverData) { riverData.map { it.chainage }.distinct().sorted() }
+                                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                            Text("Chainage:", fontWeight = FontWeight.Bold)
+                                                            IconButton(onClick = {
+                                                                val idx = uniqueChainages.indexOf(selectedChainage)
+                                                                if(idx > 0) selectedChainage = uniqueChainages[idx - 1]
+                                                            }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Remove, null) }
+
+                                                            Slider(value = selectedChainage.toFloat(), onValueChange = { v -> selectedChainage = uniqueChainages.minByOrNull { abs(it - v) } ?: v.toDouble() }, valueRange = uniqueChainages.first().toFloat()..uniqueChainages.last().toFloat(), modifier = Modifier.width(200.dp))
+
+                                                            IconButton(onClick = {
+                                                                val idx = uniqueChainages.indexOf(selectedChainage)
+                                                                if(idx < uniqueChainages.size - 1) selectedChainage = uniqueChainages[idx + 1]
+                                                            }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Add, null) }
+
+                                                            Text("${String.format("%.0f", selectedChainage)}m", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // 3. COLLAPSE HANDLE
+                                        IconButton(onClick = { isRibbonOpen = false }, modifier = Modifier.height(24.dp)) {
+                                            Icon(Icons.Default.KeyboardArrowUp, null)
+                                        }
+                                    } else {
+                                        // 4. EXPAND HANDLE
+                                        IconButton(onClick = { isRibbonOpen = true }, modifier = Modifier.height(24.dp)) {
+                                            Icon(Icons.Default.KeyboardArrowDown, null)
+                                        }
                                     }
                                 }
                             }
                         }
-                    },
-                    onBatchSave = {
-                        if(riverData.isNotEmpty()) pickFolder()?.let { folder ->
-                            scope.launch {
-                                withContext(Dispatchers.IO) {
-                                    // Use X-Scales for batch X-section saves, L-scales for L-section
+
+                        Column(modifier = Modifier.padding(16.dp).fillMaxSize()) {
+                            if (riverData.isNotEmpty()) {
+                                // 3. Graph Area
+                                val dataToPlot = remember(selectedGraphType, selectedChainage, riverData, startChainage, endChainage) {
+                                    getCurrentViewData(riverData, selectedGraphType, selectedChainage, startChainage, endChainage)
+                                }
+
+                                Box(modifier = Modifier.weight(1f).fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outline).background(Color.White)) {
+                                    // Pass correct scales
                                     val h = if(selectedGraphType == "L-Section") lHScale else xHScale
                                     val v = if(selectedGraphType == "L-Section") lVScale else xVScale
 
-                                    performBatchSave(riverData, folder, selectedGraphType, startChainage, endChainage, showPre, showPost, h, v, preColor.toAwtColor(), postColor.toAwtColor(), preDotted, postDotted) { statusMessage = it }
+                                    EngineeringCanvas(
+                                        dataToPlot, selectedGraphType == "L-Section", showPre, showPost, h, v,
+                                        preColor, postColor, preDotted, postDotted,
+                                        preWidth, postWidth, preShowPoints, postShowPoints,
+                                        showRuler, showGrid
+                                    )
                                 }
-                            }
-                        }
-                    },
-                    onGenerateReport = { /* Void */ },
-                    onShowInstructions = { showInstructions = true }
-                )
 
-                Column(modifier = Modifier.padding(16.dp).fillMaxSize()) {
-                    if (riverData.isNotEmpty()) {
-                        // 1. Controls
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                FilterChip(selected = selectedGraphType == "X-Section", onClick = { selectedGraphType = "X-Section" }, label = { Text("X-Section") })
-                                FilterChip(selected = selectedGraphType == "L-Section", onClick = { selectedGraphType = "L-Section" }, label = { Text("L-Section") })
-                                Box(Modifier.width(1.dp).height(32.dp).background(Color.LightGray))
-                                FilterChip(selected = showPre, onClick = { showPre = !showPre }, label = { Text("Pre") }, leadingIcon = { Icon(Icons.Default.Check, null, tint = preColor) })
-                                FilterChip(selected = showPost, onClick = { showPost = !showPost }, label = { Text("Post") }, leadingIcon = { Icon(Icons.Default.Check, null, tint = postColor) })
-                            }
+                                Spacer(modifier = Modifier.height(12.dp))
 
-                            // Reference Toggle (Thalweg vs Center)
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("Reference:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                FilterChip(
-                                    selected = useThalweg,
-                                    onClick = { useThalweg = true },
-                                    label = { Text("Thalweg") }
-                                )
-                                FilterChip(
-                                    selected = !useThalweg,
-                                    onClick = { useThalweg = false },
-                                    label = { Text("Center") }
-                                )
-                            }
-
-                            // Independent Scales
-                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                if (selectedGraphType == "L-Section") {
-                                    ScaleInput("L-H Scale:", lHScale) { lHScale = it }
-                                    ScaleInput("L-V Scale:", lVScale) { lVScale = it }
-                                } else {
-                                    ScaleInput("X-H Scale:", xHScale) { xHScale = it }
-                                    ScaleInput("X-V Scale:", xVScale) { xVScale = it }
-                                }
-                            }
-                        }
-
-                        Spacer(Modifier.height(8.dp))
-
-                        // 2. Style & Range
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Row {
-                                StyleSelector("Pre:", preDotted, { preDotted = it }, preColor, { preColor = it })
-                                StyleSelector("Post:", postDotted, { postDotted = it }, postColor, { postColor = it })
-                            }
-
-                            if (selectedGraphType == "L-Section") {
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Text("Range:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                    ScaleInput("Start", startChainage) { startChainage = it }
-                                    ScaleInput("End", endChainage) { endChainage = it }
-
-                                    if(startChainage < minChainage || endChainage > maxChainage || startChainage > endChainage) {
-                                        Text("(Invalid!)", fontSize = 11.sp, color = Color.Red)
-                                    } else {
-                                        Text("(Min:$minChainage - Max:$maxChainage)", fontSize = 11.sp, color = Color.Gray)
+                                // 4. Data Table
+                                CompactDataTable(
+                                    data = dataToPlot,
+                                    type = selectedGraphType,
+                                    preColor = preColor,
+                                    postColor = postColor,
+                                    isManualMode = isManualMode,
+                                    hasManualZero = manualZeroOverrides.containsKey(selectedChainage),
+                                    onManualModeToggle = { isManualMode = it },
+                                    onUpdateValue = { id, newPre, newPost ->
+                                        rawRiverData = rawRiverData.map {
+                                            if (it.id == id) it.copy(pre = newPre, post = newPost) else it
+                                        }
+                                    },
+                                    onSetZero = { id ->
+                                        manualZeroOverrides = manualZeroOverrides + (selectedChainage to id)
+                                    },
+                                    onResetZero = {
+                                        manualZeroOverrides = manualZeroOverrides.filterKeys { it != selectedChainage }
                                     }
-                                }
+                                )
                             } else {
-                                val uniqueChainages = remember(riverData) { riverData.map { it.chainage }.distinct().sorted() }
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text("CH: ${String.format("%.0f", selectedChainage)}", fontWeight = FontWeight.Bold)
-                                    IconButton(onClick = {
-                                        val idx = uniqueChainages.indexOf(selectedChainage)
-                                        if(idx > 0) selectedChainage = uniqueChainages[idx - 1]
-                                    }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Remove, null) }
-
-                                    Slider(value = selectedChainage.toFloat(), onValueChange = { v -> selectedChainage = uniqueChainages.minByOrNull { abs(it - v) } ?: v.toDouble() }, valueRange = uniqueChainages.first().toFloat()..uniqueChainages.last().toFloat(), modifier = Modifier.width(200.dp))
-
-                                    IconButton(onClick = {
-                                        val idx = uniqueChainages.indexOf(selectedChainage)
-                                        if(idx < uniqueChainages.size - 1) selectedChainage = uniqueChainages[idx + 1]
-                                    }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Add, null) }
-                                }
+                                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Load a CSV file to begin", color = Color.Gray) }
                             }
                         }
-
-                        Spacer(Modifier.height(8.dp))
-
-                        // 3. Graph Area
-                        val dataToPlot = remember(selectedGraphType, selectedChainage, riverData, startChainage, endChainage) {
-                            getCurrentViewData(riverData, selectedGraphType, selectedChainage, startChainage, endChainage)
-                        }
-
-                        Box(modifier = Modifier.weight(1f).fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outline).background(Color.White)) {
-                            // Pass correct scales to Canvas based on active view
-                            val h = if(selectedGraphType == "L-Section") lHScale else xHScale
-                            val v = if(selectedGraphType == "L-Section") lVScale else xVScale
-
-                            EngineeringCanvas(dataToPlot, selectedGraphType == "L-Section", showPre, showPost, h, v, preColor, postColor, preDotted, postDotted)
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        // 4. Data Table
-                        CompactDataTable(dataToPlot, selectedGraphType, preColor, postColor)
-                    } else {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Load a CSV file to begin", color = Color.Gray) }
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+fun SegmentedButtonRow(content: @Composable RowScope.() -> Unit) {
+    Row(modifier = Modifier.height(32.dp), content = content)
 }
