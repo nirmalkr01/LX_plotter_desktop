@@ -45,7 +45,6 @@ fun Modifier.customBorder(
 fun AppHeader(
     status: String,
     onLoad: () -> Unit,
-    onDownloadGraph: () -> Unit,
     onDownloadCsv: () -> Unit,
     onGenerateReport: () -> Unit,
     onShowInstructions: () -> Unit
@@ -87,11 +86,7 @@ fun AppHeader(
                         Text("Download")
                     }
                     DropdownMenu(expanded = showDownloadMenu, onDismissRequest = { showDownloadMenu = false }) {
-                        DropdownMenuItem(
-                            text = { Text("Graph") },
-                            leadingIcon = { Icon(Icons.Default.Image, null) },
-                            onClick = { onDownloadGraph(); showDownloadMenu = false }
-                        )
+                        // Removed Graph Option
                         DropdownMenuItem(
                             text = { Text("Report") },
                             leadingIcon = { Icon(Icons.Default.Description, null) },
@@ -114,6 +109,7 @@ fun AppHeader(
     }
 }
 
+// ... (Rest of Components.kt remains unchanged from previous versions, essentially the CsvMappingDialog and Table code) ...
 // --- CSV MAPPING DIALOG ---
 @Composable
 fun CsvMappingDialog(

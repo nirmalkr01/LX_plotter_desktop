@@ -38,7 +38,7 @@ enum class ControlGroup {
 
 enum class Screen {
     MAIN,
-    DOWNLOAD_GRAPH
+    REPORT_DOWNLOAD
 }
 
 @Composable
@@ -171,8 +171,8 @@ fun DesktopApp() {
 
     // --- SCREEN SWITCHING ---
     when (currentScreen) {
-        Screen.DOWNLOAD_GRAPH -> {
-            GraphDownloadScreen(
+        Screen.REPORT_DOWNLOAD -> {
+            ReportDownloadScreen(
                 riverData = riverData,
                 initialGraphType = selectedGraphType,
                 initialChainage = selectedChainage,
@@ -206,13 +206,6 @@ fun DesktopApp() {
                         AppHeader(
                             status = statusMessage,
                             onLoad = { pickFile()?.let { prepareFileLoad(it) } },
-                            onDownloadGraph = {
-                                if (riverData.isNotEmpty()) {
-                                    currentScreen = Screen.DOWNLOAD_GRAPH
-                                } else {
-                                    statusMessage = "Load data first"
-                                }
-                            },
                             onDownloadCsv = {
                                 if(riverData.isNotEmpty()) pickSaveFile("modified_data.csv")?.let { file ->
                                     scope.launch(Dispatchers.IO) {
@@ -222,7 +215,11 @@ fun DesktopApp() {
                                 }
                             },
                             onGenerateReport = {
-                                // Report Logic (Disabled as per instruction "make it null")
+                                if (riverData.isNotEmpty()) {
+                                    currentScreen = Screen.REPORT_DOWNLOAD
+                                } else {
+                                    statusMessage = "Load data first"
+                                }
                             },
                             onShowInstructions = { showInstructions = true }
                         )
