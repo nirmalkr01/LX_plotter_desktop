@@ -4,7 +4,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.automirrored.filled.FormatAlignLeft
@@ -19,7 +18,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -57,6 +56,9 @@ fun FilePanel(
     val pageConfigs = remember { mutableStateMapOf<String, ReportConfig>() }
     val pageTextData = remember { mutableStateMapOf<String, MutableList<TextAnnotation>>() }
 
+    // Clipboard for Copy/Paste
+    var clipboardAnnotation by remember { mutableStateOf<TextAnnotation?>(null) }
+
     // Navigation State
     var activePageIndex by remember { mutableStateOf(0) }
 
@@ -67,6 +69,8 @@ fun FilePanel(
     var globalTextColor by remember { mutableStateOf(Color.Black) }
     var globalTextSize by remember { mutableStateOf(12f) }
     var globalIsBold by remember { mutableStateOf(false) }
+    var globalIsItalic by remember { mutableStateOf(false) }
+    var globalIsUnderline by remember { mutableStateOf(false) }
     var globalTextAlign by remember { mutableStateOf(TextAlign.Left) }
 
     // Interaction Mode
@@ -74,7 +78,6 @@ fun FilePanel(
     var selectedAnnotationId by remember { mutableStateOf<String?>(null) }
 
     // --- SYNC RIBBON WITH SELECTION ---
-    // 5) When user selects a box, update the ribbon tools to match that box
     LaunchedEffect(selectedAnnotationId, activePageIndex) {
         if (selectedAnnotationId != null) {
             val activeId = reportItems.getOrNull(activePageIndex)?.id
@@ -84,6 +87,8 @@ fun FilePanel(
                     globalTextColor = txt.color
                     globalTextSize = txt.fontSize
                     globalIsBold = txt.isBold
+                    globalIsItalic = txt.isItalic
+                    globalIsUnderline = txt.isUnderline
                     globalTextAlign = txt.textAlign
                 }
             }
@@ -95,12 +100,16 @@ fun FilePanel(
         color: Color? = null,
         size: Float? = null,
         bold: Boolean? = null,
+        italic: Boolean? = null,
+        underline: Boolean? = null,
         align: TextAlign? = null
     ) {
         // Update Globals
         if (color != null) globalTextColor = color
         if (size != null) globalTextSize = size
         if (bold != null) globalIsBold = bold
+        if (italic != null) globalIsItalic = italic
+        if (underline != null) globalIsUnderline = underline
         if (align != null) globalTextAlign = align
 
         // Update Active Selection
@@ -115,6 +124,8 @@ fun FilePanel(
                 color = color ?: old.color,
                 fontSize = size ?: old.fontSize,
                 isBold = bold ?: old.isBold,
+                isItalic = italic ?: old.isItalic,
+                isUnderline = underline ?: old.isUnderline,
                 textAlign = align ?: old.textAlign
             )
         }
@@ -225,42 +236,12 @@ fun FilePanel(
                 when (activeTab) {
                     "Page Layout" -> {
                         RibbonGroup("Paper") {
-                            RibbonDropdown(selectedPaperSize.name, Icons.Default.Description, PaperSize.entries.map { it.name }) { selectedPaperSize = PaperSize.entries[it] }
+                            RibbonDropdown("Size: ${selectedPaperSize.name}", Icons.Default.Description, PaperSize.entries.map { it.name }) { selectedPaperSize = PaperSize.entries[it] }
                         }
-                        VerticalDivider(Modifier.padding(vertical = 8.dp, horizontal = 8.dp))
-
-                        RibbonGroup("Pages") {
-                            RibbonLargeButton(Icons.Default.NoteAdd, "New Page") {
-                                val newItem = ReportPageItem(graphId = -200.0, type = "Blank", data = emptyList())
-                                reportItems.add(newItem)
-                                pageConfigs[newItem.id] = ReportConfig()
-                                pageTextData[newItem.id] = mutableStateListOf()
-                                scope.launch {
-                                    listState.animateScrollToItem(reportItems.lastIndex)
-                                    activePageIndex = reportItems.lastIndex
-                                }
-                            }
-                            RibbonLargeButton(Icons.Default.Delete, "Delete", Color.Red) {
-                                // 6) Independent Page Delete
-                                if (reportItems.size > 0 && activePageIndex < reportItems.size) {
-                                    val id = reportItems[activePageIndex].id
-                                    reportItems.removeAt(activePageIndex)
-                                    pageConfigs.remove(id)
-                                    pageTextData.remove(id)
-                                    if (reportItems.isEmpty()) {
-                                        val newItem = ReportPageItem(graphId = -200.0, type = "Blank", data = emptyList())
-                                        reportItems.add(newItem)
-                                        pageConfigs[newItem.id] = ReportConfig()
-                                        pageTextData[newItem.id] = mutableStateListOf()
-                                    }
-                                    activePageIndex = activePageIndex.coerceAtMost(reportItems.lastIndex)
-                                }
-                            }
-                        }
+                        // Pages group removed from here, moved to status bar area as requested
                     }
 
                     "Borders" -> {
-                        // 2) Fraction inputs allowed
                         RibbonGroup("Margins (mm)") {
                             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Row {
@@ -293,7 +274,6 @@ fun FilePanel(
 
                         VerticalDivider(Modifier.padding(vertical = 8.dp, horizontal = 8.dp))
 
-                        // 7) Disable Inner Border if Outer is not present
                         val innerEnabled = activeConfig.showOuterBorder
                         RibbonGroup("Inner Border") {
                             Column(modifier = Modifier.alpha(if(innerEnabled) 1f else 0.4f)) {
@@ -311,7 +291,6 @@ fun FilePanel(
                                 Row {
                                     RibbonNumberInput("Gap", activeConfig.borderGap, innerEnabled) { updateActiveConfig(activeConfig.copy(borderGap = it)) }
                                     Spacer(Modifier.width(4.dp))
-                                    // 2) Added Thickness for Inner Border
                                     RibbonNumberInput("Thick", activeConfig.innerThickness, innerEnabled) { updateActiveConfig(activeConfig.copy(innerThickness = it)) }
                                 }
                                 Spacer(Modifier.height(4.dp))
@@ -322,7 +301,6 @@ fun FilePanel(
 
                     "Annotation" -> {
                         RibbonGroup("Insert") {
-                            // Toggle for Text Box Tool
                             Column(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(4.dp))
@@ -343,12 +321,22 @@ fun FilePanel(
                         RibbonGroup("Font") {
                             Column {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    ColorPickerButton(globalTextColor) { updateTextStyle(color = it) }
+                                    val styleOptions = listOf("Arial", "Times New Roman", "Courier New", "Verdana", "Georgia", "Comic Sans MS", "Impact")
+                                    RibbonDropdown("Arial", Icons.Default.FontDownload, styleOptions) { /* Placeholder for font family logic */ }
                                     Spacer(Modifier.width(8.dp))
                                     RibbonNumberInput("Size", globalTextSize) { updateTextStyle(size = it) }
                                 }
                                 Spacer(Modifier.height(8.dp))
-                                RibboniconButton(Icons.Default.FormatBold, "Bold", globalIsBold) { updateTextStyle(bold = !globalIsBold) }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    // B, I, U Buttons
+                                    RibbonTextButton("B", globalIsBold) { updateTextStyle(bold = !globalIsBold) }
+                                    Spacer(Modifier.width(4.dp))
+                                    RibbonTextButton("I", globalIsItalic) { updateTextStyle(italic = !globalIsItalic) }
+                                    Spacer(Modifier.width(4.dp))
+                                    RibbonTextButton("U", globalIsUnderline) { updateTextStyle(underline = !globalIsUnderline) }
+                                    Spacer(Modifier.width(8.dp))
+                                    ColorPickerButton(globalTextColor) { updateTextStyle(color = it) }
+                                }
                             }
                         }
 
@@ -359,19 +347,7 @@ fun FilePanel(
                                 RibboniconButton(Icons.AutoMirrored.Filled.FormatAlignLeft, "", globalTextAlign == TextAlign.Left) { updateTextStyle(align = TextAlign.Left) }
                                 RibboniconButton(Icons.Default.FormatAlignCenter, "", globalTextAlign == TextAlign.Center) { updateTextStyle(align = TextAlign.Center) }
                                 RibboniconButton(Icons.AutoMirrored.Filled.FormatAlignRight, "", globalTextAlign == TextAlign.Right) { updateTextStyle(align = TextAlign.Right) }
-                            }
-                        }
-
-                        VerticalDivider(Modifier.padding(vertical = 8.dp, horizontal = 8.dp))
-
-                        RibbonGroup("Action") {
-                            RibbonLargeButton(Icons.Default.Delete, "Del Box", Color.Red) {
-                                // 6) Independent Text Box Delete
-                                val activeId = reportItems.getOrNull(activePageIndex)?.id
-                                if (activeId != null && selectedAnnotationId != null) {
-                                    pageTextData[activeId]?.removeAll { it.id == selectedAnnotationId }
-                                    selectedAnnotationId = null
-                                }
+                                RibboniconButton(Icons.Default.FormatAlignJustify, "", globalTextAlign == TextAlign.Justify) { updateTextStyle(align = TextAlign.Justify) }
                             }
                         }
                     }
@@ -428,27 +404,43 @@ fun FilePanel(
                                 currentTextColor = globalTextColor,
                                 currentTextSize = globalTextSize,
                                 isBold = globalIsBold,
+                                isItalic = globalIsItalic,
+                                isUnderline = globalIsUnderline,
                                 currentTextAlign = globalTextAlign,
                                 isTextToolActive = isTextToolActive && isActive,
                                 selectedAnnotationId = if(isActive) selectedAnnotationId else null,
                                 onAnnotationSelected = { id ->
                                     if (id == null) {
-                                        // Clicked blank space -> Deselect text, but keep page active
                                         selectedAnnotationId = null
                                     } else {
-                                        // Clicked a text -> Select it
                                         selectedAnnotationId = id
                                     }
-                                    // 1) Ensure page is selected whenever interaction happens inside
                                     activePageIndex = idx
                                 },
                                 onPageSelected = {
-                                    // 1) Explicit Page Selection
                                     activePageIndex = idx
-                                    selectedAnnotationId = null // clear text selection when clicking background
+                                    selectedAnnotationId = null
                                 },
                                 onToolUsed = { isTextToolActive = false },
-                                onGraphPosChange = { x, y -> reportItems[idx] = item.copy(xOffset = x, yOffset = y) }
+                                onGraphPosChange = { x, y -> reportItems[idx] = item.copy(xOffset = x, yOffset = y) },
+                                onDeleteAnnotation = { id ->
+                                    pageTextData[item.id]?.removeAll { it.id == id }
+                                    selectedAnnotationId = null
+                                },
+                                onCopyAnnotation = { txt ->
+                                    clipboardAnnotation = txt
+                                },
+                                onPasteAnnotation = {
+                                    clipboardAnnotation?.let { copied ->
+                                        val newTxt = copied.copy(
+                                            id = java.util.UUID.randomUUID().toString(),
+                                            xPercent = 0.4f, // Center-ish paste
+                                            yPercent = 0.4f
+                                        )
+                                        pageTextData[item.id]?.add(newTxt)
+                                        selectedAnnotationId = newTxt.id
+                                    }
+                                }
                             )
                         }
                     }
@@ -465,6 +457,41 @@ fun FilePanel(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text("Page ${activePageIndex + 1} of ${reportItems.size}", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+
+            Spacer(Modifier.width(16.dp))
+
+            // New Page / Delete Page buttons moved here
+            IconButton(onClick = {
+                val newItem = ReportPageItem(graphId = -200.0, type = "Blank", data = emptyList())
+                reportItems.add(newItem)
+                pageConfigs[newItem.id] = ReportConfig()
+                pageTextData[newItem.id] = mutableStateListOf()
+                scope.launch {
+                    listState.animateScrollToItem(reportItems.lastIndex)
+                    activePageIndex = reportItems.lastIndex
+                }
+            }, modifier = Modifier.size(24.dp)) {
+                Icon(Icons.Default.NoteAdd, "New Page", tint = Color.White, modifier = Modifier.size(16.dp))
+            }
+
+            IconButton(onClick = {
+                if (reportItems.size > 0 && activePageIndex < reportItems.size) {
+                    val id = reportItems[activePageIndex].id
+                    reportItems.removeAt(activePageIndex)
+                    pageConfigs.remove(id)
+                    pageTextData.remove(id)
+                    if (reportItems.isEmpty()) {
+                        val newItem = ReportPageItem(graphId = -200.0, type = "Blank", data = emptyList())
+                        reportItems.add(newItem)
+                        pageConfigs[newItem.id] = ReportConfig()
+                        pageTextData[newItem.id] = mutableStateListOf()
+                    }
+                    activePageIndex = activePageIndex.coerceAtMost(reportItems.lastIndex)
+                }
+            }, modifier = Modifier.size(24.dp)) {
+                Icon(Icons.Default.Delete, "Delete Page", tint = Color.Red, modifier = Modifier.size(16.dp))
+            }
+
             Spacer(Modifier.weight(1f))
             Text("-", color = Color.White, modifier = Modifier.clickable { if(zoomPercent>30) zoomPercent-=5 }.padding(horizontal=4.dp))
             Slider(
