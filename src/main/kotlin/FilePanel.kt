@@ -10,6 +10,8 @@ import androidx.compose.material.icons.automirrored.filled.FormatAlignLeft
 import androidx.compose.material.icons.automirrored.filled.FormatAlignRight
 import androidx.compose.material.icons.filled.FormatAlignCenter
 import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -17,16 +19,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import kotlin.math.roundToInt
 
 // --- CONSTANTS ---
 const val BASE_SCALE_DP_PER_MM = 1.5f
@@ -49,31 +57,35 @@ fun FilePanel(
 
     // --- STATE MANAGEMENT ---
     var selectedPaperSize by remember { mutableStateOf(PaperSize.A4) }
-    // 1) Always Landscape
     val isLandscape = true
     var zoomPercent by remember { mutableStateOf(100f) }
 
     val pageConfigs = remember { mutableStateMapOf<String, ReportConfig>() }
     val pageTextData = remember { mutableStateMapOf<String, MutableList<TextAnnotation>>() }
 
-    // Clipboard for Copy/Paste
+    // --- GLOBAL DRAG STATE ---
+    val pageBounds = remember { mutableStateMapOf<String, Rect>() }
+
+    var parentOffset by remember { mutableStateOf(Offset.Zero) }
+
+    var draggingAnnotation by remember { mutableStateOf<TextAnnotation?>(null) }
+    var draggingSourcePageId by remember { mutableStateOf<String?>(null) }
+    var draggingCurrentOffset by remember { mutableStateOf(Offset.Zero) }
+    var draggingStartOffset by remember { mutableStateOf(Offset.Zero) }
+
     var clipboardAnnotation by remember { mutableStateOf<TextAnnotation?>(null) }
-
-    // Navigation State
     var activePageIndex by remember { mutableStateOf(0) }
-
-    // --- TOOL STATE ---
     var activeTab by remember { mutableStateOf("Page Layout") }
 
-    // Text Styling Globals (These sync with selected box)
+    // Text Styling Globals
     var globalTextColor by remember { mutableStateOf(Color.Black) }
     var globalTextSize by remember { mutableStateOf(12f) }
     var globalIsBold by remember { mutableStateOf(false) }
     var globalIsItalic by remember { mutableStateOf(false) }
     var globalIsUnderline by remember { mutableStateOf(false) }
     var globalTextAlign by remember { mutableStateOf(TextAlign.Left) }
+    var globalFontFamily by remember { mutableStateOf("Arial") }
 
-    // Interaction Mode
     var isTextToolActive by remember { mutableStateOf(false) }
     var selectedAnnotationId by remember { mutableStateOf<String?>(null) }
 
@@ -90,6 +102,7 @@ fun FilePanel(
                     globalIsItalic = txt.isItalic
                     globalIsUnderline = txt.isUnderline
                     globalTextAlign = txt.textAlign
+                    globalFontFamily = txt.fontFamily
                 }
             }
         }
@@ -102,17 +115,17 @@ fun FilePanel(
         bold: Boolean? = null,
         italic: Boolean? = null,
         underline: Boolean? = null,
-        align: TextAlign? = null
+        align: TextAlign? = null,
+        font: String? = null
     ) {
-        // Update Globals
         if (color != null) globalTextColor = color
         if (size != null) globalTextSize = size
         if (bold != null) globalIsBold = bold
         if (italic != null) globalIsItalic = italic
         if (underline != null) globalIsUnderline = underline
         if (align != null) globalTextAlign = align
+        if (font != null) globalFontFamily = font
 
-        // Update Active Selection
         val activeId = reportItems.getOrNull(activePageIndex)?.id ?: return
         val currentList = pageTextData[activeId] ?: return
         val selId = selectedAnnotationId ?: return
@@ -126,12 +139,12 @@ fun FilePanel(
                 isBold = bold ?: old.isBold,
                 isItalic = italic ?: old.isItalic,
                 isUnderline = underline ?: old.isUnderline,
-                textAlign = align ?: old.textAlign
+                textAlign = align ?: old.textAlign,
+                fontFamily = font ?: old.fontFamily
             )
         }
     }
 
-    // --- INITIALIZATION ---
     LaunchedEffect(reportItems.size) {
         if (reportItems.isEmpty()) {
             val newItem = ReportPageItem(graphId = -200.0, type = "Blank", data = emptyList())
@@ -147,7 +160,6 @@ fun FilePanel(
         }
     }
 
-    // Auto-detect active page from scroll (only if not manually interacting)
     LaunchedEffect(listState.firstVisibleItemIndex) {
         if (!listState.isScrollInProgress) {
             activePageIndex = listState.firstVisibleItemIndex.coerceIn(0, maxOf(0, reportItems.lastIndex))
@@ -223,11 +235,11 @@ fun FilePanel(
             RibbonTab("Borders & Margins", activeTab == "Borders") { activeTab = "Borders" }
             RibbonTab("Insert & Text", activeTab == "Annotation") { activeTab = "Annotation" }
         }
-        Divider(color = Color(0xFFE0E0E0))
+        HorizontalDivider(color = Color(0xFFE0E0E0))
 
         // ================= RIBBON TOOLS =================
         Surface(
-            modifier = Modifier.fillMaxWidth().height(100.dp),
+            modifier = Modifier.fillMaxWidth().height(110.dp),
             color = Color(0xFFF8F9FA),
             shadowElevation = 2.dp
         ) {
@@ -238,7 +250,6 @@ fun FilePanel(
                         RibbonGroup("Paper") {
                             RibbonDropdown("Size: ${selectedPaperSize.name}", Icons.Default.Description, PaperSize.entries.map { it.name }) { selectedPaperSize = PaperSize.entries[it] }
                         }
-                        // Pages group removed from here, moved to status bar area as requested
                     }
 
                     "Borders" -> {
@@ -265,10 +276,12 @@ fun FilePanel(
                                     Spacer(Modifier.width(4.dp))
                                     Text("Show", fontSize=11.sp)
                                 }
-                                Spacer(Modifier.height(4.dp))
-                                RibbonNumberInput("Thick", activeConfig.outerThickness) { updateActiveConfig(activeConfig.copy(outerThickness = it)) }
-                                Spacer(Modifier.height(4.dp))
-                                ColorPickerButton(activeConfig.outerColor) { updateActiveConfig(activeConfig.copy(outerColor = it)) }
+                                Spacer(Modifier.height(8.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    RibbonNumberInput("Thick", activeConfig.outerThickness) { updateActiveConfig(activeConfig.copy(outerThickness = it)) }
+                                    Spacer(Modifier.width(8.dp))
+                                    ColorPickerButton(activeConfig.outerColor) { updateActiveConfig(activeConfig.copy(outerColor = it)) }
+                                }
                             }
                         }
 
@@ -286,15 +299,15 @@ fun FilePanel(
                                     )
                                     Spacer(Modifier.width(4.dp))
                                     Text("Show", fontSize=11.sp)
-                                }
-                                Spacer(Modifier.height(4.dp))
-                                Row {
+                                    Spacer(Modifier.width(8.dp))
                                     RibbonNumberInput("Gap", activeConfig.borderGap, innerEnabled) { updateActiveConfig(activeConfig.copy(borderGap = it)) }
-                                    Spacer(Modifier.width(4.dp))
-                                    RibbonNumberInput("Thick", activeConfig.innerThickness, innerEnabled) { updateActiveConfig(activeConfig.copy(innerThickness = it)) }
                                 }
-                                Spacer(Modifier.height(4.dp))
-                                ColorPickerButton(activeConfig.innerColor) { if(innerEnabled) updateActiveConfig(activeConfig.copy(innerColor = it)) }
+                                Spacer(Modifier.height(8.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    RibbonNumberInput("Thick", activeConfig.innerThickness, innerEnabled) { updateActiveConfig(activeConfig.copy(innerThickness = it)) }
+                                    Spacer(Modifier.width(8.dp))
+                                    ColorPickerButton(activeConfig.innerColor) { if(innerEnabled) updateActiveConfig(activeConfig.copy(innerColor = it)) }
+                                }
                             }
                         }
                     }
@@ -319,16 +332,19 @@ fun FilePanel(
                         VerticalDivider(Modifier.padding(vertical = 8.dp, horizontal = 8.dp))
 
                         RibbonGroup("Font") {
-                            Column {
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     val styleOptions = listOf("Arial", "Times New Roman", "Courier New", "Verdana", "Georgia", "Comic Sans MS", "Impact")
-                                    RibbonDropdown("Arial", Icons.Default.FontDownload, styleOptions) { /* Placeholder for font family logic */ }
+                                    RibbonDropdown(globalFontFamily, Icons.Default.FontDownload, styleOptions) { index ->
+                                        updateTextStyle(font = styleOptions[index])
+                                    }
                                     Spacer(Modifier.width(8.dp))
                                     RibbonNumberInput("Size", globalTextSize) { updateTextStyle(size = it) }
                                 }
-                                Spacer(Modifier.height(8.dp))
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    // B, I, U Buttons
                                     RibbonTextButton("B", globalIsBold) { updateTextStyle(bold = !globalIsBold) }
                                     Spacer(Modifier.width(4.dp))
                                     RibbonTextButton("I", globalIsItalic) { updateTextStyle(italic = !globalIsItalic) }
@@ -355,14 +371,19 @@ fun FilePanel(
             }
         }
 
-        // ================= WORKSPACE =================
+        // ================= WORKSPACE WITH GLOBAL DRAG OVERLAY =================
         Box(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
                 .background(Color(0xFF505050))
                 .padding(vertical = 20.dp, horizontal = 20.dp)
+                // --- CAPTURE PARENT POSITION ---
+                .onGloballyPositioned { layoutCoordinates ->
+                    parentOffset = layoutCoordinates.positionInWindow()
+                }
         ) {
+            // 1. The Scrollable List of Pages
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
@@ -373,10 +394,14 @@ fun FilePanel(
                 itemsIndexed(reportItems) { idx, item ->
                     val isActive = idx == activePageIndex
 
-                    // 5) Remove mouse hover fade effects
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.padding(bottom = 4.dp)
+                            .onGloballyPositioned { layoutCoordinates ->
+                                val pos = layoutCoordinates.positionInWindow()
+                                val size = layoutCoordinates.size
+                                pageBounds[item.id] = Rect(pos, Size(size.width.toFloat(), size.height.toFloat()))
+                            }
                     ) {
                         Box(
                             modifier = Modifier
@@ -386,6 +411,8 @@ fun FilePanel(
                                     if(isActive) Color(0xFF2B579A) else Color.Transparent
                                 )
                         ) {
+                            val currentAnnotations = pageTextData[item.id] ?: mutableStateListOf()
+
                             EditablePageContainer(
                                 item = item,
                                 pageNumber = idx + 1,
@@ -393,29 +420,25 @@ fun FilePanel(
                                 isLandscape = isLandscape,
                                 config = pageConfigs[item.id] ?: ReportConfig(),
                                 zoomLevel = zoomPercent / 100f,
-                                textAnnotations = pageTextData[item.id] ?: mutableStateListOf(),
-                                // Graph Props
+                                textAnnotations = currentAnnotations,
                                 hScale = if (item.type == "L-Section") lHScale else xHScale,
                                 vScale = if (item.type == "L-Section") lVScale else xVScale,
                                 showPre = showPre, showPost = showPost, preColor = preColor, postColor = postColor,
                                 preDotted = preDotted, postDotted = postDotted, preWidth = preWidth, postWidth = postWidth,
                                 preShowPoints = preShowPoints, postShowPoints = postShowPoints, showGrid = showGrid,
-                                // Tools State
                                 currentTextColor = globalTextColor,
                                 currentTextSize = globalTextSize,
                                 isBold = globalIsBold,
                                 isItalic = globalIsItalic,
                                 isUnderline = globalIsUnderline,
                                 currentTextAlign = globalTextAlign,
+                                currentFontFamily = globalFontFamily,
                                 isTextToolActive = isTextToolActive && isActive,
                                 selectedAnnotationId = if(isActive) selectedAnnotationId else null,
+                                canPaste = clipboardAnnotation != null,
                                 onAnnotationSelected = { id ->
-                                    if (id == null) {
-                                        selectedAnnotationId = null
-                                    } else {
-                                        selectedAnnotationId = id
-                                    }
-                                    activePageIndex = idx
+                                    selectedAnnotationId = id
+                                    if(id != null) activePageIndex = idx
                                 },
                                 onPageSelected = {
                                     activePageIndex = idx
@@ -427,23 +450,95 @@ fun FilePanel(
                                     pageTextData[item.id]?.removeAll { it.id == id }
                                     selectedAnnotationId = null
                                 },
-                                onCopyAnnotation = { txt ->
-                                    clipboardAnnotation = txt
-                                },
+                                onCopyAnnotation = { txt -> clipboardAnnotation = txt },
                                 onPasteAnnotation = {
                                     clipboardAnnotation?.let { copied ->
                                         val newTxt = copied.copy(
                                             id = java.util.UUID.randomUUID().toString(),
-                                            xPercent = 0.4f, // Center-ish paste
-                                            yPercent = 0.4f
+                                            xPercent = 0.4f, yPercent = 0.4f
                                         )
                                         pageTextData[item.id]?.add(newTxt)
                                         selectedAnnotationId = newTxt.id
+                                    }
+                                },
+                                // Pass hidden ID
+                                hiddenAnnotationId = if(draggingAnnotation != null && draggingSourcePageId == item.id) draggingAnnotation!!.id else null,
+
+                                // Global Drag Handlers
+                                onGlobalDragStart = { annotation, absoluteStartPos ->
+                                    draggingAnnotation = annotation
+                                    draggingSourcePageId = item.id
+                                    draggingCurrentOffset = absoluteStartPos
+                                    selectedAnnotationId = annotation.id
+                                },
+                                onGlobalDrag = { dragDelta ->
+                                    draggingCurrentOffset += dragDelta
+                                },
+                                onGlobalDragEnd = {
+                                    try {
+                                        var droppedPageId: String? = null
+                                        // 1. Identify Target Page
+                                        for ((pId, rect) in pageBounds) {
+                                            if (rect.contains(draggingCurrentOffset)) {
+                                                droppedPageId = pId
+                                                break
+                                            }
+                                        }
+
+                                        // 2. Process Move
+                                        if (droppedPageId != null && draggingAnnotation != null) {
+                                            val targetRect = pageBounds[droppedPageId]!!
+
+                                            val relX = (draggingCurrentOffset.x - targetRect.left) / targetRect.width
+                                            val relY = (draggingCurrentOffset.y - targetRect.top) / targetRect.height
+
+                                            val movedAnnotation = draggingAnnotation!!.copy(
+                                                xPercent = relX.toFloat(),
+                                                yPercent = relY.toFloat()
+                                            )
+
+                                            // Remove from source
+                                            pageTextData[draggingSourcePageId!!]?.removeAll { it.id == draggingAnnotation!!.id }
+
+                                            // Add to target
+                                            pageTextData[droppedPageId]?.add(movedAnnotation)
+
+                                            val newIdx = reportItems.indexOfFirst { it.id == droppedPageId }
+                                            if(newIdx != -1) activePageIndex = newIdx
+                                        }
+                                    } finally {
+                                        // 3. Reset (Crucial for visibility)
+                                        draggingAnnotation = null
+                                        draggingSourcePageId = null
                                     }
                                 }
                             )
                         }
                     }
+                }
+            }
+
+            // 2. The Ghost Annotation (Overlay)
+            if (draggingAnnotation != null) {
+                val ghost = draggingAnnotation!!
+                Box(
+                    modifier = Modifier
+                        // Calculate offset relative to this Box
+                        .offset { IntOffset((draggingCurrentOffset.x - parentOffset.x).roundToInt(), (draggingCurrentOffset.y - parentOffset.y).roundToInt()) }
+                        .background(Color.White.copy(alpha=0.8f))
+                        .border(1.dp, Color.Gray, RoundedCornerShape(4.dp))
+                        .padding(4.dp)
+                ) {
+                    Text(
+                        text = ghost.text,
+                        color = ghost.color,
+                        fontSize = (ghost.fontSize * (zoomPercent/100f)).sp,
+                        fontWeight = if(ghost.isBold) FontWeight.Bold else FontWeight.Normal,
+                        fontStyle = if(ghost.isItalic) FontStyle.Italic else FontStyle.Normal,
+                        textDecoration = if(ghost.isUnderline) TextDecoration.Underline else TextDecoration.None,
+                        textAlign = ghost.textAlign,
+                        fontFamily = getFontFamily(ghost.fontFamily)
+                    )
                 }
             }
         }
@@ -460,7 +555,6 @@ fun FilePanel(
 
             Spacer(Modifier.width(16.dp))
 
-            // New Page / Delete Page buttons moved here
             IconButton(onClick = {
                 val newItem = ReportPageItem(graphId = -200.0, type = "Blank", data = emptyList())
                 reportItems.add(newItem)

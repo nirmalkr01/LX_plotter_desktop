@@ -1,3 +1,4 @@
+// D:\LX-plotter_desktop\LX_plotter_desktop\src\main\kotlin\FilePanelComponents.kt
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -15,19 +16,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
@@ -48,8 +54,23 @@ data class TextAnnotation(
     var isBold: Boolean = false,
     var isItalic: Boolean = false,
     var isUnderline: Boolean = false,
-    var textAlign: TextAlign = TextAlign.Left
+    var textAlign: TextAlign = TextAlign.Left,
+    var fontFamily: String = "Arial",
+    // New property for faded placeholder ID
+    var displayId: String? = null
 )
+
+// Helper to map string names to Compose FontFamilies
+fun getFontFamily(name: String): FontFamily {
+    return when(name) {
+        "Times New Roman" -> FontFamily.Serif
+        "Courier New" -> FontFamily.Monospace
+        "Verdana" -> FontFamily.SansSerif
+        "Georgia" -> FontFamily.Serif
+        "Impact" -> FontFamily.SansSerif
+        else -> FontFamily.Default
+    }
+}
 
 @Composable
 fun EditablePageContainer(
@@ -70,15 +91,22 @@ fun EditablePageContainer(
     currentTextColor: Color, currentTextSize: Float,
     isBold: Boolean, isItalic: Boolean, isUnderline: Boolean,
     currentTextAlign: TextAlign,
+    currentFontFamily: String,
     isTextToolActive: Boolean,
     selectedAnnotationId: String?,
+    canPaste: Boolean,
     onAnnotationSelected: (String?) -> Unit,
     onPageSelected: () -> Unit,
     onToolUsed: () -> Unit,
     onGraphPosChange: (Float, Float) -> Unit,
     onDeleteAnnotation: (String) -> Unit,
     onCopyAnnotation: (TextAnnotation) -> Unit,
-    onPasteAnnotation: () -> Unit
+    onPasteAnnotation: () -> Unit,
+    // --- CALLBACKS FOR GLOBAL DRAG ---
+    hiddenAnnotationId: String? = null,
+    onGlobalDragStart: (TextAnnotation, Offset) -> Unit,
+    onGlobalDrag: (Offset) -> Unit,
+    onGlobalDragEnd: () -> Unit
 ) {
     val textMeasurer = rememberTextMeasurer()
 
@@ -108,20 +136,20 @@ fun EditablePageContainer(
     val currentPaperW by rememberUpdatedState(paperW_px)
     val currentPaperH by rememberUpdatedState(paperH_px)
 
-    var showPageContextMenu by remember { mutableStateOf(false) }
-
     BoxWithConstraints(
         modifier = Modifier
             .size(paperW_dp, paperH_dp)
             .background(Color.White)
             // 1) Logic: Tap on background -> Select Page. If Tool Active -> Create Text
-            .pointerInput(isTextToolActive) {
+            .pointerInput(isTextToolActive, currentTextColor, currentTextSize, isBold, isItalic, isUnderline, currentTextAlign, currentFontFamily) {
                 detectTapGestures(
                     onTap = { offset ->
                         onPageSelected()
                         if (isTextToolActive) {
                             val safeX = offset.x
                             val safeY = offset.y
+                            // Generate a simple sequential ID for display like "Txt-1"
+                            val nextIdNum = textAnnotations.size + 1
                             val newTxt = TextAnnotation(
                                 xPercent = safeX / currentPaperW,
                                 yPercent = safeY / currentPaperH,
@@ -132,7 +160,9 @@ fun EditablePageContainer(
                                 isBold = isBold,
                                 isItalic = isItalic,
                                 isUnderline = isUnderline,
-                                textAlign = currentTextAlign
+                                textAlign = currentTextAlign,
+                                fontFamily = currentFontFamily,
+                                displayId = "ID-$nextIdNum" // Assign ID
                             )
                             textAnnotations.add(newTxt)
                             onAnnotationSelected(newTxt.id)
@@ -140,18 +170,6 @@ fun EditablePageContainer(
                         }
                     }
                 )
-            }
-            .pointerInput(Unit) {
-                awaitPointerEventScope {
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        if (event.buttons.isSecondaryPressed) {
-                            // Page right click
-                            onPageSelected()
-                            showPageContextMenu = true
-                        }
-                    }
-                }
             }
     ) {
         // --- LAYER 1: CANVAS ---
@@ -168,6 +186,35 @@ fun EditablePageContainer(
                     topLeft = Offset(innerLeftPx, innerTopPx),
                     size = Size(paperW_px - innerLeftPx - innerRightPx, paperH_px - innerTopPx - innerBottomPx),
                     style = Stroke(width = config.innerThickness))
+            }
+
+            // Draw a layout similar to the provided image (Title Block at bottom right)
+            // Bottom Right Box
+            val titleBlockW = 300f
+            val titleBlockH = 100f
+            val titleBlockX = paperW_px - mRightPx - titleBlockW
+            val titleBlockY = paperH_px - mBottomPx - titleBlockH
+
+            if (titleBlockX > mLeftPx && titleBlockY > mTopPx) {
+                drawRect(Color.Black, topLeft = Offset(titleBlockX, titleBlockY), size = Size(titleBlockW, titleBlockH), style = Stroke(width = 1f))
+                // Inner lines for title block rows
+                drawLine(Color.Black, Offset(titleBlockX, titleBlockY + 33f), Offset(paperW_px - mRightPx, titleBlockY + 33f), 1f)
+                drawLine(Color.Black, Offset(titleBlockX, titleBlockY + 66f), Offset(paperW_px - mRightPx, titleBlockY + 66f), 1f)
+                // Inner lines for title block columns
+                drawLine(Color.Black, Offset(titleBlockX + 100f, titleBlockY), Offset(titleBlockX + 100f, paperH_px - mBottomPx), 1f)
+                drawLine(Color.Black, Offset(titleBlockX + 200f, titleBlockY), Offset(titleBlockX + 200f, paperH_px - mBottomPx), 1f)
+            }
+
+            // Bottom Left Box
+            val leftBlockW = 200f
+            val leftBlockH = 60f
+            val leftBlockX = mLeftPx
+            val leftBlockY = paperH_px - mBottomPx - leftBlockH
+
+            if(leftBlockX + leftBlockW < titleBlockX) {
+                drawRect(Color.Black, topLeft = Offset(leftBlockX, leftBlockY), size = Size(leftBlockW, leftBlockH), style = Stroke(width = 1f))
+                drawLine(Color.Black, Offset(leftBlockX, leftBlockY + 30f), Offset(leftBlockX + leftBlockW, leftBlockY + 30f), 1f)
+                drawLine(Color.Black, Offset(leftBlockX + 100f, leftBlockY), Offset(leftBlockX + 100f, leftBlockY + leftBlockH), 1f)
             }
 
             val pageStr = "$pageNumber"
@@ -213,11 +260,6 @@ fun EditablePageContainer(
             }
         }
 
-        // PAGE CONTEXT MENU (Paste)
-        DropdownMenu(expanded = showPageContextMenu, onDismissRequest = { showPageContextMenu = false }) {
-            DropdownMenuItem(text = { Text("Paste") }, onClick = { onPasteAnnotation(); showPageContextMenu = false })
-        }
-
         // --- LAYER 3: TEXT BOXES ---
         textAnnotations.forEachIndexed { index, txt ->
             val isSelected = txt.id == selectedAnnotationId
@@ -228,10 +270,18 @@ fun EditablePageContainer(
             val wPx = paperW_px * txt.widthPercent
             val hPx = paperH_px * txt.heightPercent
 
+            // We capture the absolute screen position of this annotation to help Global Drag
+            var absolutePosition by remember { mutableStateOf(Offset.Zero) }
+
             Box(
                 modifier = Modifier
                     .offset { IntOffset(xPx.roundToInt(), yPx.roundToInt()) }
                     .size(with(density) { wPx.toDp() }, with(density) { hPx.toDp() })
+                    .onGloballyPositioned { layoutCoordinates ->
+                        absolutePosition = layoutCoordinates.positionInWindow()
+                    }
+                    // *** VITAL CHANGE HERE: Set Alpha instead of removing from list ***
+                    .alpha(if (hiddenAnnotationId == txt.id) 0f else 1f)
                     .drawBehind {
                         if (isSelected) {
                             val stroke = Stroke(
@@ -244,31 +294,38 @@ fun EditablePageContainer(
                             )
                         }
                     }
-                    .pointerInput(Unit) {
-                        detectTapGestures(
-                            onTap = { onAnnotationSelected(txt.id) },
-                            onLongPress = {
-                                onAnnotationSelected(txt.id)
-                                showContextMenu = true
-                            }
-                        )
-                    }
-                    // For Desktop Right Click (Secondary Click)
+                    // Right Click Logic applied to container
                     .pointerInput(Unit) {
                         awaitPointerEventScope {
                             while (true) {
-                                val event = awaitPointerEvent()
-                                if (event.buttons.isSecondaryPressed) {
-                                    // Box right click
+                                val event = awaitPointerEvent(PointerEventPass.Initial)
+                                if (event.buttons.isSecondaryPressed && event.changes.any { it.pressed }) {
+                                    event.changes.forEach { it.consume() }
                                     onAnnotationSelected(txt.id)
                                     showContextMenu = true
-                                    // Do NOT trigger page menu
-                                    // This requires this pointerInput to handle it, potentially blocking parent
                                 }
                             }
                         }
                     }
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onTap = { onAnnotationSelected(txt.id) }
+                        )
+                    }
             ) {
+                // Faded ID logic
+                if (txt.text.isEmpty() && txt.displayId != null) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = txt.displayId!!,
+                            color = Color.LightGray.copy(alpha = 0.5f),
+                            fontSize = (txt.fontSize * zoomLevel).sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                // The Text Field
                 BasicTextField(
                     value = txt.text,
                     enabled = isSelected,
@@ -279,23 +336,17 @@ fun EditablePageContainer(
                         fontWeight = if(txt.isBold) FontWeight.Bold else FontWeight.Normal,
                         fontStyle = if(txt.isItalic) FontStyle.Italic else FontStyle.Normal,
                         textDecoration = if(txt.isUnderline) TextDecoration.Underline else TextDecoration.None,
-                        textAlign = txt.textAlign
+                        textAlign = txt.textAlign,
+                        fontFamily = getFontFamily(txt.fontFamily)
                     ),
                     modifier = Modifier.fillMaxSize().padding(4.dp)
                 )
 
-                // Text Box Context Menu (Copy/Delete)
+                // Custom Single Menu
                 DropdownMenu(
                     expanded = showContextMenu,
                     onDismissRequest = { showContextMenu = false }
                 ) {
-                    DropdownMenuItem(
-                        text = { Text("Copy") },
-                        onClick = {
-                            onCopyAnnotation(txt)
-                            showContextMenu = false
-                        }
-                    )
                     DropdownMenuItem(
                         text = { Text("Delete", color = Color.Red) },
                         onClick = {
@@ -307,34 +358,35 @@ fun EditablePageContainer(
 
                 // CONTROLS: Only visible when selected
                 if (isSelected) {
-                    // 1. DRAG ICON (Bottom Center) - Smaller, below line
+                    // 1. DRAG ICON (Bottom Center)
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
-                            .offset(y = 12.dp) // Closer to line
-                            .size(16.dp)
+                            .offset(y = 20.dp)
+                            .size(18.dp)
                             .background(Color(0xFFF0F0F0), CircleShape)
                             .clip(CircleShape)
                             .border(0.5.dp, Color.LightGray, CircleShape)
                             .pointerInput(Unit) {
-                                detectDragGestures { change, dragAmount ->
-                                    change.consume()
-                                    val currTxt = textAnnotations[index]
-                                    val currX = currentPaperW * currTxt.xPercent
-                                    val currY = currentPaperH * currTxt.yPercent
-
-                                    val newX = currX + dragAmount.x
-                                    val newY = currY + dragAmount.y
-
-                                    textAnnotations[index] = currTxt.copy(
-                                        xPercent = newX / currentPaperW,
-                                        yPercent = newY / currentPaperH
-                                    )
-                                }
+                                detectDragGestures(
+                                    onDragStart = {
+                                        // Tell parent we started dragging, passing current screen coords
+                                        onGlobalDragStart(txt, absolutePosition)
+                                    },
+                                    onDrag = { change, dragAmount ->
+                                        change.consume()
+                                        // Tell parent to move the ghost
+                                        onGlobalDrag(dragAmount)
+                                    },
+                                    onDragEnd = {
+                                        // Tell parent we let go
+                                        onGlobalDragEnd()
+                                    }
+                                )
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        Icon(Icons.Default.DragIndicator, contentDescription = "Drag", tint = Color.Gray, modifier = Modifier.size(10.dp))
+                        Icon(Icons.Default.DragIndicator, contentDescription = "Drag", tint = Color.Gray, modifier = Modifier.size(12.dp))
                     }
 
                     // 2. RESIZE HANDLES (Small dots on border lines)
@@ -387,13 +439,11 @@ fun EditablePageContainer(
                         )
                     }
 
-                    // Handles on lines (Top, Bottom, Left, Right)
                     ResizeHandle(Alignment.TopCenter) { x, y -> updateResize(x, y, false, true, lockX = true) }
                     ResizeHandle(Alignment.BottomCenter) { x, y -> updateResize(x, y, false, false, lockX = true) }
                     ResizeHandle(Alignment.CenterStart) { x, y -> updateResize(x, y, true, false, lockY = true) }
                     ResizeHandle(Alignment.CenterEnd) { x, y -> updateResize(x, y, false, false, lockY = true) }
 
-                    // Corner Handles
                     ResizeHandle(Alignment.TopStart) { x, y -> updateResize(x, y, true, true) }
                     ResizeHandle(Alignment.TopEnd) { x, y -> updateResize(x, y, false, true) }
                     ResizeHandle(Alignment.BottomStart) { x, y -> updateResize(x, y, true, false) }
@@ -421,7 +471,7 @@ fun RibbonTab(text: String, isActive: Boolean, onClick: () -> Unit) {
 fun RibbonGroup(label: String, content: @Composable RowScope.() -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxHeight().padding(horizontal = 6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, content = content)
-        Text(label, fontSize = 10.sp, color = Color.Gray)
+        Text(label, fontSize = 10.sp, color = Color.Gray, modifier = Modifier.padding(bottom = 2.dp))
     }
 }
 
@@ -483,7 +533,6 @@ fun RibbonDropdown(label: String, icon: androidx.compose.ui.graphics.vector.Imag
     }
 }
 
-// 2) Fraction and Empty Input Handling
 @Composable
 fun RibbonNumberInput(label: String, value: Float, enabled: Boolean = true, onChange: (Float) -> Unit) {
     var textValue by remember(value) { mutableStateOf(if(value == 0f) "" else value.toString()) }
