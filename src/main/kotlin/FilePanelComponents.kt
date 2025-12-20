@@ -77,6 +77,7 @@ fun EditablePageContainer(
     item: ReportPageItem,
     pageNumber: Int,
     paperSize: PaperSize,
+    layoutType: PageLayoutType, // Added Layout Type parameter
     isLandscape: Boolean,
     config: ReportConfig,
     zoomLevel: Float,
@@ -188,34 +189,25 @@ fun EditablePageContainer(
                     style = Stroke(width = config.innerThickness))
             }
 
-            // Draw a layout similar to the provided image (Title Block at bottom right)
-            // Bottom Right Box
-            val titleBlockW = 300f
-            val titleBlockH = 100f
-            val titleBlockX = paperW_px - mRightPx - titleBlockW
-            val titleBlockY = paperH_px - mBottomPx - titleBlockH
+            // --- DRAW SPECIFIC PAGE LAYOUT (A1 Style etc) ---
+            // Determine effective boundaries based on Inner Border toggle
+            val layoutML = if (config.showInnerBorder) innerLeftPx else mLeftPx
+            val layoutMT = if (config.showInnerBorder) innerTopPx else mTopPx
+            val layoutMR = if (config.showInnerBorder) innerRightPx else mRightPx
+            val layoutMB = if (config.showInnerBorder) innerBottomPx else mBottomPx
 
-            if (titleBlockX > mLeftPx && titleBlockY > mTopPx) {
-                drawRect(Color.Black, topLeft = Offset(titleBlockX, titleBlockY), size = Size(titleBlockW, titleBlockH), style = Stroke(width = 1f))
-                // Inner lines for title block rows
-                drawLine(Color.Black, Offset(titleBlockX, titleBlockY + 33f), Offset(paperW_px - mRightPx, titleBlockY + 33f), 1f)
-                drawLine(Color.Black, Offset(titleBlockX, titleBlockY + 66f), Offset(paperW_px - mRightPx, titleBlockY + 66f), 1f)
-                // Inner lines for title block columns
-                drawLine(Color.Black, Offset(titleBlockX + 100f, titleBlockY), Offset(titleBlockX + 100f, paperH_px - mBottomPx), 1f)
-                drawLine(Color.Black, Offset(titleBlockX + 200f, titleBlockY), Offset(titleBlockX + 200f, paperH_px - mBottomPx), 1f)
-            }
-
-            // Bottom Left Box
-            val leftBlockW = 200f
-            val leftBlockH = 60f
-            val leftBlockX = mLeftPx
-            val leftBlockY = paperH_px - mBottomPx - leftBlockH
-
-            if(leftBlockX + leftBlockW < titleBlockX) {
-                drawRect(Color.Black, topLeft = Offset(leftBlockX, leftBlockY), size = Size(leftBlockW, leftBlockH), style = Stroke(width = 1f))
-                drawLine(Color.Black, Offset(leftBlockX, leftBlockY + 30f), Offset(leftBlockX + leftBlockW, leftBlockY + 30f), 1f)
-                drawLine(Color.Black, Offset(leftBlockX + 100f, leftBlockY), Offset(leftBlockX + 100f, leftBlockY + leftBlockH), 1f)
-            }
+            drawPageLayout(
+                type = layoutType,
+                paperWidthPx = paperW_px,
+                paperHeightPx = paperH_px,
+                marginLeftPx = layoutML,
+                marginTopPx = layoutMT,
+                marginRightPx = layoutMR,
+                marginBottomPx = layoutMB,
+                textMeasurer = textMeasurer,
+                borderColor = Color(config.outerColor.red, config.outerColor.green, config.outerColor.blue),
+                borderThickness = config.outerThickness
+            )
 
             val pageStr = "$pageNumber"
             val textLayout = textMeasurer.measure(pageStr, style = TextStyle(fontSize = 12.sp, color = Color.Black, fontWeight = FontWeight.Bold))
@@ -231,12 +223,18 @@ fun EditablePageContainer(
         val visualGraphW = (graphDim.width * graphScaleFactor).toFloat()
         val visualGraphH = (graphDim.height * graphScaleFactor).toFloat()
 
-        val contentW_px = (widthMm * pxPerMm) - innerLeftPx - innerRightPx
-        val contentH_px = (heightMm * pxPerMm) - innerTopPx - innerBottomPx
+        // Content area respects borders too
+        val contentLeft = if(config.showInnerBorder) innerLeftPx else mLeftPx
+        val contentTop = if(config.showInnerBorder) innerTopPx else mTopPx
+        val contentRight = if(config.showInnerBorder) innerRightPx else mRightPx
+        val contentBottom = if(config.showInnerBorder) innerBottomPx else mBottomPx
+
+        val contentW_px = paperW_px - contentLeft - contentRight
+        val contentH_px = paperH_px - contentTop - contentBottom
 
         Box(
             modifier = Modifier
-                .padding(start = with(density){ innerLeftPx.toDp() }, top = with(density){ innerTopPx.toDp() })
+                .padding(start = with(density){ contentLeft.toDp() }, top = with(density){ contentTop.toDp() })
                 .size(with(density){ contentW_px.toDp() }, with(density){ contentH_px.toDp() })
                 .clipToBounds()
         ) {
@@ -262,192 +260,253 @@ fun EditablePageContainer(
 
         // --- LAYER 3: TEXT BOXES ---
         textAnnotations.forEachIndexed { index, txt ->
-            val isSelected = txt.id == selectedAnnotationId
-            var showContextMenu by remember { mutableStateOf(false) }
+            // !!! KEY CHANGE: Use key() to preserve state during list mutations !!!
+            key(txt.id) {
+                val isSelected = txt.id == selectedAnnotationId
+                var showContextMenu by remember { mutableStateOf(false) }
 
-            val xPx = paperW_px * txt.xPercent
-            val yPx = paperH_px * txt.yPercent
-            val wPx = paperW_px * txt.widthPercent
-            val hPx = paperH_px * txt.heightPercent
+                val xPx = paperW_px * txt.xPercent
+                val yPx = paperH_px * txt.yPercent
+                val wPx = paperW_px * txt.widthPercent
+                val hPx = paperH_px * txt.heightPercent
 
-            // We capture the absolute screen position of this annotation to help Global Drag
-            var absolutePosition by remember { mutableStateOf(Offset.Zero) }
+                // We capture the absolute screen position of this annotation to help Global Drag
+                var absolutePosition by remember { mutableStateOf(Offset.Zero) }
 
-            Box(
-                modifier = Modifier
-                    .offset { IntOffset(xPx.roundToInt(), yPx.roundToInt()) }
-                    .size(with(density) { wPx.toDp() }, with(density) { hPx.toDp() })
-                    .onGloballyPositioned { layoutCoordinates ->
-                        absolutePosition = layoutCoordinates.positionInWindow()
-                    }
-                    // *** VITAL CHANGE HERE: Set Alpha instead of removing from list ***
-                    .alpha(if (hiddenAnnotationId == txt.id) 0f else 1f)
-                    .drawBehind {
-                        if (isSelected) {
-                            val stroke = Stroke(
-                                width = 1.dp.toPx(),
-                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f), 0f)
-                            )
-                            drawRect(
-                                color = Color.LightGray,
-                                style = stroke
-                            )
+                Box(
+                    modifier = Modifier
+                        .offset { IntOffset(xPx.roundToInt(), yPx.roundToInt()) }
+                        .size(with(density) { wPx.toDp() }, with(density) { hPx.toDp() })
+                        .onGloballyPositioned { layoutCoordinates ->
+                            absolutePosition = layoutCoordinates.positionInWindow()
                         }
-                    }
-                    // Right Click Logic applied to container
-                    .pointerInput(Unit) {
-                        awaitPointerEventScope {
-                            while (true) {
-                                val event = awaitPointerEvent(PointerEventPass.Initial)
-                                if (event.buttons.isSecondaryPressed && event.changes.any { it.pressed }) {
-                                    event.changes.forEach { it.consume() }
-                                    onAnnotationSelected(txt.id)
-                                    showContextMenu = true
+                        // *** VITAL CHANGE HERE: Set Alpha instead of removing from list ***
+                        .alpha(if (hiddenAnnotationId == txt.id) 0f else 1f)
+                        .drawBehind {
+                            if (isSelected) {
+                                val stroke = Stroke(
+                                    width = 1.dp.toPx(),
+                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f), 0f)
+                                )
+                                drawRect(
+                                    color = Color.LightGray,
+                                    style = stroke
+                                )
+                            }
+                        }
+                        // Right Click Logic applied to container
+                        .pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                                    if (event.buttons.isSecondaryPressed && event.changes.any { it.pressed }) {
+                                        event.changes.forEach { it.consume() }
+                                        onAnnotationSelected(txt.id)
+                                        showContextMenu = true
+                                    }
                                 }
                             }
                         }
-                    }
-                    .pointerInput(Unit) {
-                        detectTapGestures(
-                            onTap = { onAnnotationSelected(txt.id) }
-                        )
-                    }
-            ) {
-                // Faded ID logic
-                if (txt.text.isEmpty() && txt.displayId != null) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = txt.displayId!!,
-                            color = Color.LightGray.copy(alpha = 0.5f),
-                            fontSize = (txt.fontSize * zoomLevel).sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-
-                // The Text Field
-                BasicTextField(
-                    value = txt.text,
-                    enabled = isSelected,
-                    onValueChange = { str -> textAnnotations[index] = txt.copy(text = str) },
-                    textStyle = TextStyle(
-                        color = txt.color,
-                        fontSize = (txt.fontSize * zoomLevel).sp,
-                        fontWeight = if(txt.isBold) FontWeight.Bold else FontWeight.Normal,
-                        fontStyle = if(txt.isItalic) FontStyle.Italic else FontStyle.Normal,
-                        textDecoration = if(txt.isUnderline) TextDecoration.Underline else TextDecoration.None,
-                        textAlign = txt.textAlign,
-                        fontFamily = getFontFamily(txt.fontFamily)
-                    ),
-                    modifier = Modifier.fillMaxSize().padding(4.dp)
-                )
-
-                // Custom Single Menu
-                DropdownMenu(
-                    expanded = showContextMenu,
-                    onDismissRequest = { showContextMenu = false }
-                ) {
-                    DropdownMenuItem(
-                        text = { Text("Delete", color = Color.Red) },
-                        onClick = {
-                            onDeleteAnnotation(txt.id)
-                            showContextMenu = false
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onTap = { onAnnotationSelected(txt.id) }
+                            )
                         }
+                ) {
+                    // The Text Field
+                    BasicTextField(
+                        value = txt.text,
+                        enabled = isSelected,
+                        onValueChange = { str -> textAnnotations[index] = txt.copy(text = str) },
+                        textStyle = TextStyle(
+                            color = txt.color,
+                            fontSize = (txt.fontSize * zoomLevel).sp,
+                            fontWeight = if (txt.isBold) FontWeight.Bold else FontWeight.Normal,
+                            fontStyle = if (txt.isItalic) FontStyle.Italic else FontStyle.Normal,
+                            textDecoration = if (txt.isUnderline) TextDecoration.Underline else TextDecoration.None,
+                            textAlign = txt.textAlign,
+                            fontFamily = getFontFamily(txt.fontFamily)
+                        ),
+                        modifier = Modifier.fillMaxSize().padding(4.dp)
                     )
-                }
 
-                // CONTROLS: Only visible when selected
-                if (isSelected) {
-                    // 1. DRAG ICON (Bottom Center)
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .offset(y = 20.dp)
-                            .size(18.dp)
-                            .background(Color(0xFFF0F0F0), CircleShape)
-                            .clip(CircleShape)
-                            .border(0.5.dp, Color.LightGray, CircleShape)
-                            .pointerInput(Unit) {
-                                detectDragGestures(
-                                    onDragStart = {
-                                        // Tell parent we started dragging, passing current screen coords
-                                        onGlobalDragStart(txt, absolutePosition)
-                                    },
-                                    onDrag = { change, dragAmount ->
-                                        change.consume()
-                                        // Tell parent to move the ghost
-                                        onGlobalDrag(dragAmount)
-                                    },
-                                    onDragEnd = {
-                                        // Tell parent we let go
-                                        onGlobalDragEnd()
-                                    }
-                                )
-                            },
-                        contentAlignment = Alignment.Center
+                    // Custom Single Menu
+                    DropdownMenu(
+                        expanded = showContextMenu,
+                        onDismissRequest = { showContextMenu = false }
                     ) {
-                        Icon(Icons.Default.DragIndicator, contentDescription = "Drag", tint = Color.Gray, modifier = Modifier.size(12.dp))
+                        DropdownMenuItem(
+                            text = { Text("Delete", color = Color.Red) },
+                            onClick = {
+                                onDeleteAnnotation(txt.id)
+                                showContextMenu = false
+                            }
+                        )
                     }
 
-                    // 2. RESIZE HANDLES (Small dots on border lines)
-                    val handleSize = 6.dp
-                    val handleColor = Color.LightGray
-
-                    @Composable
-                    fun ResizeHandle(alignment: Alignment, onDrag: (Float, Float) -> Unit) {
+                    // CONTROLS: Only visible when selected
+                    if (isSelected) {
+                        // 1. DRAG ICON (Bottom Center)
                         Box(
                             modifier = Modifier
-                                .align(alignment)
-                                .size(handleSize)
-                                .background(handleColor, CircleShape)
+                                .align(Alignment.BottomCenter)
+                                .offset(y = 20.dp)
+                                .size(18.dp)
+                                .background(Color(0xFFF0F0F0), CircleShape)
+                                .clip(CircleShape)
+                                .border(0.5.dp, Color.LightGray, CircleShape)
                                 .pointerInput(Unit) {
-                                    detectDragGestures { change, dragAmount ->
-                                        change.consume()
-                                        onDrag(dragAmount.x, dragAmount.y)
+                                    detectDragGestures(
+                                        onDragStart = {
+                                            // Tell parent we started dragging, passing current screen coords
+                                            onGlobalDragStart(txt, absolutePosition)
+                                        },
+                                        onDrag = { change, dragAmount ->
+                                            change.consume()
+                                            // Tell parent to move the ghost
+                                            onGlobalDrag(dragAmount)
+                                        },
+                                        onDragEnd = {
+                                            // Tell parent we let go
+                                            onGlobalDragEnd()
+                                        }
+                                    )
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Default.DragIndicator,
+                                contentDescription = "Drag",
+                                tint = Color.Gray,
+                                modifier = Modifier.size(12.dp)
+                            )
+                        }
+
+                        // 2. RESIZE HANDLES (Small dots on border lines)
+                        val handleSize = 6.dp
+                        val handleColor = Color.LightGray
+
+                        @Composable
+                        fun ResizeHandle(alignment: Alignment, onDrag: (Float, Float) -> Unit) {
+                            Box(
+                                modifier = Modifier
+                                    .align(alignment)
+                                    .size(handleSize)
+                                    .background(handleColor, CircleShape)
+                                    .pointerInput(Unit) {
+                                        detectDragGestures { change, dragAmount ->
+                                            change.consume()
+                                            onDrag(dragAmount.x, dragAmount.y)
+                                        }
                                     }
+                            )
+                        }
+
+                        fun updateResize(
+                            dx: Float,
+                            dy: Float,
+                            isLeft: Boolean,
+                            isTop: Boolean,
+                            lockX: Boolean = false,
+                            lockY: Boolean = false
+                        ) {
+                            val currTxt = textAnnotations[index]
+                            val cx = currentPaperW * currTxt.xPercent
+                            val cy = currentPaperH * currTxt.yPercent
+                            val cw = currentPaperW * currTxt.widthPercent
+                            val ch = currentPaperH * currTxt.heightPercent
+
+                            var nx = cx
+                            var ny = cy
+                            var nw = cw
+                            var nh = ch
+
+                            if (!lockX) {
+                                if (isLeft) {
+                                    nx += dx; nw -= dx
+                                } else {
+                                    nw += dx
                                 }
-                        )
-                    }
+                            }
+                            if (!lockY) {
+                                if (isTop) {
+                                    ny += dy; nh -= dy
+                                } else {
+                                    nh += dy
+                                }
+                            }
 
-                    fun updateResize(dx: Float, dy: Float, isLeft: Boolean, isTop: Boolean, lockX: Boolean = false, lockY: Boolean = false) {
-                        val currTxt = textAnnotations[index]
-                        val cx = currentPaperW * currTxt.xPercent
-                        val cy = currentPaperH * currTxt.yPercent
-                        val cw = currentPaperW * currTxt.widthPercent
-                        val ch = currentPaperH * currTxt.heightPercent
+                            if (nw < 20f) {
+                                if (isLeft && !lockX) nx = cx; nw = 20f
+                            }
+                            if (nh < 20f) {
+                                if (isTop && !lockY) ny = cy; nh = 20f
+                            }
 
-                        var nx = cx
-                        var ny = cy
-                        var nw = cw
-                        var nh = ch
-
-                        if (!lockX) {
-                            if (isLeft) { nx += dx; nw -= dx } else { nw += dx }
+                            textAnnotations[index] = currTxt.copy(
+                                xPercent = nx / currentPaperW,
+                                yPercent = ny / currentPaperH,
+                                widthPercent = nw / currentPaperW,
+                                heightPercent = nh / currentPaperH
+                            )
                         }
-                        if (!lockY) {
-                            if (isTop) { ny += dy; nh -= dy } else { nh += dy }
+
+                        ResizeHandle(Alignment.TopCenter) { x, y ->
+                            updateResize(
+                                x,
+                                y,
+                                false,
+                                true,
+                                lockX = true
+                            )
+                        }
+                        ResizeHandle(Alignment.BottomCenter) { x, y ->
+                            updateResize(
+                                x,
+                                y,
+                                false,
+                                false,
+                                lockX = true
+                            )
+                        }
+                        ResizeHandle(Alignment.CenterStart) { x, y ->
+                            updateResize(
+                                x,
+                                y,
+                                true,
+                                false,
+                                lockY = true
+                            )
+                        }
+                        ResizeHandle(Alignment.CenterEnd) { x, y ->
+                            updateResize(
+                                x,
+                                y,
+                                false,
+                                false,
+                                lockY = true
+                            )
                         }
 
-                        if (nw < 20f) { if (isLeft && !lockX) nx = cx; nw = 20f }
-                        if (nh < 20f) { if (isTop && !lockY) ny = cy; nh = 20f }
-
-                        textAnnotations[index] = currTxt.copy(
-                            xPercent = nx / currentPaperW,
-                            yPercent = ny / currentPaperH,
-                            widthPercent = nw / currentPaperW,
-                            heightPercent = nh / currentPaperH
-                        )
+                        ResizeHandle(Alignment.TopStart) { x, y -> updateResize(x, y, true, true) }
+                        ResizeHandle(Alignment.TopEnd) { x, y -> updateResize(x, y, false, true) }
+                        ResizeHandle(Alignment.BottomStart) { x, y ->
+                            updateResize(
+                                x,
+                                y,
+                                true,
+                                false
+                            )
+                        }
+                        ResizeHandle(Alignment.BottomEnd) { x, y ->
+                            updateResize(
+                                x,
+                                y,
+                                false,
+                                false
+                            )
+                        }
                     }
-
-                    ResizeHandle(Alignment.TopCenter) { x, y -> updateResize(x, y, false, true, lockX = true) }
-                    ResizeHandle(Alignment.BottomCenter) { x, y -> updateResize(x, y, false, false, lockX = true) }
-                    ResizeHandle(Alignment.CenterStart) { x, y -> updateResize(x, y, true, false, lockY = true) }
-                    ResizeHandle(Alignment.CenterEnd) { x, y -> updateResize(x, y, false, false, lockY = true) }
-
-                    ResizeHandle(Alignment.TopStart) { x, y -> updateResize(x, y, true, true) }
-                    ResizeHandle(Alignment.TopEnd) { x, y -> updateResize(x, y, false, true) }
-                    ResizeHandle(Alignment.BottomStart) { x, y -> updateResize(x, y, true, false) }
-                    ResizeHandle(Alignment.BottomEnd) { x, y -> updateResize(x, y, false, false) }
                 }
             }
         }

@@ -57,6 +57,7 @@ fun FilePanel(
 
     // --- STATE MANAGEMENT ---
     var selectedPaperSize by remember { mutableStateOf(PaperSize.A4) }
+    var selectedLayoutType by remember { mutableStateOf(PageLayoutType.BLANK) } // New State for Layout
     val isLandscape = true
     var zoomPercent by remember { mutableStateOf(100f) }
 
@@ -250,6 +251,13 @@ fun FilePanel(
                         RibbonGroup("Paper") {
                             RibbonDropdown("Size: ${selectedPaperSize.name}", Icons.Default.Description, PaperSize.entries.map { it.name }) { selectedPaperSize = PaperSize.entries[it] }
                         }
+
+                        VerticalDivider(Modifier.padding(vertical = 8.dp, horizontal = 8.dp))
+
+                        // NEW: Layout Filter Group
+                        RibbonGroup("Templates") {
+                            RibbonDropdown("Layout: ${selectedLayoutType.displayName}", Icons.Default.ViewQuilt, PageLayoutType.entries.map { it.displayName }) { selectedLayoutType = PageLayoutType.entries[it] }
+                        }
                     }
 
                     "Borders" -> {
@@ -417,6 +425,7 @@ fun FilePanel(
                                 item = item,
                                 pageNumber = idx + 1,
                                 paperSize = selectedPaperSize,
+                                layoutType = selectedLayoutType, // Pass Layout Here
                                 isLandscape = isLandscape,
                                 config = pageConfigs[item.id] ?: ReportConfig(),
                                 zoomLevel = zoomPercent / 100f,
