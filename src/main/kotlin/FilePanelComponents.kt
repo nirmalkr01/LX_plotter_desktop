@@ -1,625 +1,680 @@
-// D:\LX-plotter_desktop\LX_plotter_desktop\src\main\kotlin\FilePanelComponents.kt
 import androidx.compose.foundation.*
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.DragIndicator
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.FormatAlignLeft
+import androidx.compose.material.icons.automirrored.filled.FormatAlignRight
+import androidx.compose.material.icons.filled.FormatAlignCenter
+import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.isSecondaryPressed
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.drawText
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
 import kotlin.math.roundToInt
 
-data class TextAnnotation(
-    var id: String = java.util.UUID.randomUUID().toString(),
-    var text: String = "",
-    var xPercent: Float = 0f,
-    var yPercent: Float = 0f,
-    var widthPercent: Float = 0.2f,
-    var heightPercent: Float = 0.05f,
-    var color: Color = Color.Black,
-    var fontSize: Float = 12f,
-    var isBold: Boolean = false,
-    var isItalic: Boolean = false,
-    var isUnderline: Boolean = false,
-    var textAlign: TextAlign = TextAlign.Left,
-    var fontFamily: String = "Arial",
-    // New property for faded placeholder ID
-    var displayId: String? = null
-)
-
-// Helper to map string names to Compose FontFamilies
-fun getFontFamily(name: String): FontFamily {
-    return when(name) {
-        "Times New Roman" -> FontFamily.Serif
-        "Courier New" -> FontFamily.Monospace
-        "Verdana" -> FontFamily.SansSerif
-        "Georgia" -> FontFamily.Serif
-        "Impact" -> FontFamily.SansSerif
-        else -> FontFamily.Default
-    }
-}
+// --- CONSTANTS ---
+const val BASE_SCALE_DP_PER_MM = 1.5f
 
 @Composable
-fun EditablePageContainer(
-    item: ReportPageItem,
-    pageNumber: Int,
-    paperSize: PaperSize,
-    layoutType: PageLayoutType, // Added Layout Type parameter
-    isLandscape: Boolean,
-    config: ReportConfig,
-    zoomLevel: Float,
-    textAnnotations: MutableList<TextAnnotation>,
-    hScale: Double, vScale: Double,
+fun FilePanel(
+    reportItems: MutableList<ReportPageItem>,
+    lHScale: Double, lVScale: Double,
+    xHScale: Double, xVScale: Double,
     showPre: Boolean, showPost: Boolean,
     preColor: java.awt.Color, postColor: java.awt.Color,
     preDotted: Boolean, postDotted: Boolean,
     preWidth: Float, postWidth: Float,
     preShowPoints: Boolean, postShowPoints: Boolean,
     showGrid: Boolean,
-    currentTextColor: Color, currentTextSize: Float,
-    isBold: Boolean, isItalic: Boolean, isUnderline: Boolean,
-    currentTextAlign: TextAlign,
-    currentFontFamily: String,
-    isTextToolActive: Boolean,
-    selectedAnnotationId: String?,
-    canPaste: Boolean,
-    onAnnotationSelected: (String?) -> Unit,
-    onPageSelected: () -> Unit,
-    onToolUsed: () -> Unit,
-    onGraphPosChange: (Float, Float) -> Unit,
-    onDeleteAnnotation: (String) -> Unit,
-    onCopyAnnotation: (TextAnnotation) -> Unit,
-    onPasteAnnotation: () -> Unit,
-    // --- CALLBACKS FOR GLOBAL DRAG ---
-    hiddenAnnotationId: String? = null,
-    onGlobalDragStart: (TextAnnotation, Offset) -> Unit,
-    onGlobalDrag: (Offset) -> Unit,
-    onGlobalDragEnd: () -> Unit
+    onStatusChange: (String) -> Unit
 ) {
-    val textMeasurer = rememberTextMeasurer()
+    val scope = rememberCoroutineScope()
+    val listState = rememberLazyListState()
 
-    // 1. Dimensions
-    val widthMm = if (isLandscape) paperSize.heightMm else paperSize.widthMm
-    val heightMm = if (isLandscape) paperSize.widthMm else paperSize.heightMm
-    val pxPerMm = 1.5f * zoomLevel
-    val paperW_dp = (widthMm * pxPerMm).dp
-    val paperH_dp = (heightMm * pxPerMm).dp
+    // --- STATE MANAGEMENT ---
+    var selectedPaperSize by remember { mutableStateOf(PaperSize.A4) }
+    var selectedLayoutType by remember { mutableStateOf(PageLayoutType.BLANK) }
+    val isLandscape = true
+    var zoomPercent by remember { mutableStateOf(100f) }
 
-    // 2. Margins & Borders (Pixels)
-    val mLeftPx = config.marginLeft * pxPerMm
-    val mTopPx = config.marginTop * pxPerMm
-    val mRightPx = config.marginRight * pxPerMm
-    val mBottomPx = config.marginBottom * pxPerMm
-    val gapPx = config.borderGap * pxPerMm
+    // Page Elements State
+    var showPageNumber by remember { mutableStateOf(true) }
 
-    val innerLeftPx = mLeftPx + gapPx
-    val innerTopPx = mTopPx + gapPx
-    val innerRightPx = mRightPx + gapPx
-    val innerBottomPx = mBottomPx + gapPx
+    // Store Annexure 'X' values per page ID
+    val pageAnnexureValues = remember { mutableStateMapOf<String, String>() }
 
-    val density = LocalDensity.current
-    val paperW_px = with(density) { paperW_dp.toPx() }
-    val paperH_px = with(density) { paperH_dp.toPx() }
+    val pageConfigs = remember { mutableStateMapOf<String, ReportConfig>() }
+    val pageTextData = remember { mutableStateMapOf<String, MutableList<TextAnnotation>>() }
 
-    val currentPaperW by rememberUpdatedState(paperW_px)
-    val currentPaperH by rememberUpdatedState(paperH_px)
+    // --- GLOBAL DRAG STATE ---
+    val pageBounds = remember { mutableStateMapOf<String, Rect>() }
 
-    BoxWithConstraints(
+    var parentOffset by remember { mutableStateOf(Offset.Zero) }
+
+    var draggingAnnotation by remember { mutableStateOf<TextAnnotation?>(null) }
+    var draggingSourcePageId by remember { mutableStateOf<String?>(null) }
+    var draggingCurrentOffset by remember { mutableStateOf(Offset.Zero) }
+    var draggingStartOffset by remember { mutableStateOf(Offset.Zero) }
+
+    var clipboardAnnotation by remember { mutableStateOf<TextAnnotation?>(null) }
+    var activePageIndex by remember { mutableStateOf(0) }
+    var activeTab by remember { mutableStateOf("Page Layout") }
+
+    // Text Styling Globals
+    var globalTextColor by remember { mutableStateOf(Color.Black) }
+    var globalTextSize by remember { mutableStateOf(12f) }
+    var globalIsBold by remember { mutableStateOf(false) }
+    var globalIsItalic by remember { mutableStateOf(false) }
+    var globalIsUnderline by remember { mutableStateOf(false) }
+    var globalTextAlign by remember { mutableStateOf(TextAlign.Left) }
+    var globalFontFamily by remember { mutableStateOf("Arial") }
+
+    var isTextToolActive by remember { mutableStateOf(false) }
+    var selectedAnnotationId by remember { mutableStateOf<String?>(null) }
+
+    // --- SYNC RIBBON WITH SELECTION ---
+    LaunchedEffect(selectedAnnotationId, activePageIndex) {
+        if (selectedAnnotationId != null) {
+            val activeId = reportItems.getOrNull(activePageIndex)?.id
+            if (activeId != null) {
+                val txt = pageTextData[activeId]?.find { it.id == selectedAnnotationId }
+                if (txt != null) {
+                    globalTextColor = txt.color
+                    globalTextSize = txt.fontSize
+                    globalIsBold = txt.isBold
+                    globalIsItalic = txt.isItalic
+                    globalIsUnderline = txt.isUnderline
+                    globalTextAlign = txt.textAlign
+                    globalFontFamily = txt.fontFamily
+                }
+            }
+        }
+    }
+
+    // --- HELPER: UPDATE SELECTED TEXT ---
+    fun updateTextStyle(
+        color: Color? = null,
+        size: Float? = null,
+        bold: Boolean? = null,
+        italic: Boolean? = null,
+        underline: Boolean? = null,
+        align: TextAlign? = null,
+        font: String? = null
+    ) {
+        if (color != null) globalTextColor = color
+        if (size != null) globalTextSize = size
+        if (bold != null) globalIsBold = bold
+        if (italic != null) globalIsItalic = italic
+        if (underline != null) globalIsUnderline = underline
+        if (align != null) globalTextAlign = align
+        if (font != null) globalFontFamily = font
+
+        val activeId = reportItems.getOrNull(activePageIndex)?.id ?: return
+        val currentList = pageTextData[activeId] ?: return
+        val selId = selectedAnnotationId ?: return
+
+        val index = currentList.indexOfFirst { it.id == selId }
+        if (index != -1) {
+            val old = currentList[index]
+            currentList[index] = old.copy(
+                color = color ?: old.color,
+                fontSize = size ?: old.fontSize,
+                isBold = bold ?: old.isBold,
+                isItalic = italic ?: old.isItalic,
+                isUnderline = underline ?: old.isUnderline,
+                textAlign = align ?: old.textAlign,
+                fontFamily = font ?: old.fontFamily
+            )
+        }
+    }
+
+    LaunchedEffect(reportItems.size) {
+        if (reportItems.isEmpty()) {
+            val newItem = ReportPageItem(graphId = -200.0, type = "Blank", data = emptyList())
+            reportItems.add(newItem)
+            pageConfigs[newItem.id] = ReportConfig()
+            pageTextData[newItem.id] = mutableStateListOf()
+            pageAnnexureValues[newItem.id] = "" // Default empty
+            activePageIndex = 0
+        } else {
+            reportItems.forEach { item ->
+                if (!pageConfigs.containsKey(item.id)) pageConfigs[item.id] = ReportConfig()
+                if (!pageTextData.containsKey(item.id)) pageTextData[item.id] = mutableStateListOf()
+                if (!pageAnnexureValues.containsKey(item.id)) pageAnnexureValues[item.id] = ""
+            }
+        }
+    }
+
+    LaunchedEffect(listState.firstVisibleItemIndex) {
+        if (!listState.isScrollInProgress) {
+            activePageIndex = listState.firstVisibleItemIndex.coerceIn(0, maxOf(0, reportItems.lastIndex))
+        }
+    }
+
+    val activeItem = reportItems.getOrNull(activePageIndex)
+    val activeConfig = if (activeItem != null) pageConfigs[activeItem.id] ?: ReportConfig() else ReportConfig()
+
+    fun updateActiveConfig(newConfig: ReportConfig) {
+        if (activeItem != null) pageConfigs[activeItem.id] = newConfig
+    }
+
+    Column(
         modifier = Modifier
-            .size(paperW_dp, paperH_dp)
-            .background(Color.White)
-            // 1) Logic: Tap on background -> Select Page. If Tool Active -> Create Text
-            .pointerInput(isTextToolActive, currentTextColor, currentTextSize, isBold, isItalic, isUnderline, currentTextAlign, currentFontFamily) {
-                detectTapGestures(
-                    onTap = { offset ->
-                        onPageSelected()
-                        if (isTextToolActive) {
-                            val safeX = offset.x
-                            val safeY = offset.y
-                            // Generate a simple sequential ID for display like "Txt-1"
-                            val nextIdNum = textAnnotations.size + 1
-                            val newTxt = TextAnnotation(
-                                xPercent = safeX / currentPaperW,
-                                yPercent = safeY / currentPaperH,
-                                widthPercent = 0.2f,
-                                heightPercent = 0.05f,
-                                color = currentTextColor,
-                                fontSize = currentTextSize,
-                                isBold = isBold,
-                                isItalic = isItalic,
-                                isUnderline = isUnderline,
-                                textAlign = currentTextAlign,
-                                fontFamily = currentFontFamily,
-                                displayId = "ID-$nextIdNum" // Assign ID
-                            )
-                            textAnnotations.add(newTxt)
-                            onAnnotationSelected(newTxt.id)
-                            onToolUsed()
+            .fillMaxSize()
+            .background(Color(0xFFF3F2F1))
+            .border(1.dp, Color(0xFFD1D1D1))
+    ) {
+        // ================= HEADER =================
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF2B579A))
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.EditNote, null, tint = Color.White)
+                Spacer(Modifier.width(8.dp))
+                Text("Report Designer", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color.White)
+            }
+
+            Button(
+                onClick = {
+                    if(reportItems.isNotEmpty()) {
+                        pickFolder()?.let { folder ->
+                            scope.launch {
+                                onStatusChange("Rendering...")
+                                withContext(Dispatchers.IO) {
+                                    reportItems.forEachIndexed { index, item ->
+                                        val cfg = pageConfigs[item.id] ?: ReportConfig()
+                                        val txts = pageTextData[item.id] ?: emptyList()
+                                        val hScale = if (item.type == "L-Section") lHScale else xHScale
+                                        val vScale = if (item.type == "L-Section") lVScale else xVScale
+                                        val annexVal = pageAnnexureValues[item.id] ?: ""
+
+                                        saveSplitPage(
+                                            item.data, File(folder, "Page_${index+1}.png"),
+                                            item.xOffset.toInt(), item.yOffset.toInt(),
+                                            item.type, selectedPaperSize, isLandscape, hScale, vScale, cfg,
+                                            0.0, showPre, showPost, preColor, postColor, preDotted, postDotted, preWidth, postWidth, preShowPoints, postShowPoints, showGrid,
+                                            textAnnotations = txts
+                                        )
+                                        // Note: saveSplitPage would need a similar update to drawPageLayout if you want the PDF/Image export to reflect this.
+                                        // Since we are focusing on FilePanel preview now, ensure saveSplitPage in Download.kt is eventually updated too.
+                                    }
+                                }
+                                onStatusChange("Export Complete!")
+                            }
                         }
                     }
-                )
+                },
+                modifier = Modifier.height(28.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF2B579A))
+            ) {
+                Text("Export Images", fontSize = 11.sp, fontWeight = FontWeight.Bold)
             }
-    ) {
-        // --- LAYER 1: CANVAS ---
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            if (config.showOuterBorder) {
-                drawRect(Color(config.outerColor.red, config.outerColor.green, config.outerColor.blue),
-                    topLeft = Offset(mLeftPx, mTopPx),
-                    size = Size(paperW_px - mLeftPx - mRightPx, paperH_px - mTopPx - mBottomPx),
-                    style = Stroke(width = config.outerThickness))
-            }
-
-            if (config.showInnerBorder && config.showOuterBorder) {
-                drawRect(Color(config.innerColor.red, config.innerColor.green, config.innerColor.blue),
-                    topLeft = Offset(innerLeftPx, innerTopPx),
-                    size = Size(paperW_px - innerLeftPx - innerRightPx, paperH_px - innerTopPx - innerBottomPx),
-                    style = Stroke(width = config.innerThickness))
-            }
-
-            // --- DRAW SPECIFIC PAGE LAYOUT (A1 Style etc) ---
-            // Determine effective boundaries based on Inner Border toggle
-            val layoutML = if (config.showInnerBorder) innerLeftPx else mLeftPx
-            val layoutMT = if (config.showInnerBorder) innerTopPx else mTopPx
-            val layoutMR = if (config.showInnerBorder) innerRightPx else mRightPx
-            val layoutMB = if (config.showInnerBorder) innerBottomPx else mBottomPx
-
-            drawPageLayout(
-                type = layoutType,
-                paperWidthPx = paperW_px,
-                paperHeightPx = paperH_px,
-                marginLeftPx = layoutML,
-                marginTopPx = layoutMT,
-                marginRightPx = layoutMR,
-                marginBottomPx = layoutMB,
-                textMeasurer = textMeasurer,
-                borderColor = Color(config.outerColor.red, config.outerColor.green, config.outerColor.blue),
-                borderThickness = config.outerThickness
-            )
-
-            val pageStr = "$pageNumber"
-            val textLayout = textMeasurer.measure(pageStr, style = TextStyle(fontSize = 12.sp, color = Color.Black, fontWeight = FontWeight.Bold))
-            drawText(textLayout, topLeft = Offset(paperW_px - textLayout.size.width - 20f, paperH_px - 25f))
         }
 
-        // --- LAYER 2: GRAPH ---
-        val fullPageW_imgPx = widthMm * (38.0/10.0)
-        val graphScaleFactor = paperW_px / fullPageW_imgPx
-        val graphDim = remember(item.data, hScale, vScale) {
-            if (item.data.isEmpty()) GraphDimensions(0.0, 0.0) else calculateGraphDimensions(item.data, item.type, hScale, vScale)
+        // ================= RIBBON TABS =================
+        Row(modifier = Modifier.fillMaxWidth().background(Color.White)) {
+            RibbonTab("Page Layout", activeTab == "Page Layout") { activeTab = "Page Layout" }
+            RibbonTab("Borders & Margins", activeTab == "Borders") { activeTab = "Borders" }
+            RibbonTab("Insert & Text", activeTab == "Annotation") { activeTab = "Annotation" }
         }
-        val visualGraphW = (graphDim.width * graphScaleFactor).toFloat()
-        val visualGraphH = (graphDim.height * graphScaleFactor).toFloat()
+        HorizontalDivider(color = Color(0xFFE0E0E0))
 
-        // Content area respects borders too
-        val contentLeft = if(config.showInnerBorder) innerLeftPx else mLeftPx
-        val contentTop = if(config.showInnerBorder) innerTopPx else mTopPx
-        val contentRight = if(config.showInnerBorder) innerRightPx else mRightPx
-        val contentBottom = if(config.showInnerBorder) innerBottomPx else mBottomPx
+        // ================= RIBBON TOOLS =================
+        Surface(
+            modifier = Modifier.fillMaxWidth().height(110.dp),
+            color = Color(0xFFF8F9FA),
+            shadowElevation = 2.dp
+        ) {
+            Row(modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
 
-        val contentW_px = paperW_px - contentLeft - contentRight
-        val contentH_px = paperH_px - contentTop - contentBottom
+                when (activeTab) {
+                    "Page Layout" -> {
+                        RibbonGroup("Paper") {
+                            RibbonDropdown("Size: ${selectedPaperSize.name}", Icons.Default.Description, PaperSize.entries.map { it.name }) { selectedPaperSize = PaperSize.entries[it] }
+                        }
 
+                        VerticalDivider(Modifier.padding(vertical = 8.dp, horizontal = 8.dp))
+
+                        RibbonGroup("Templates") {
+                            RibbonDropdown("Layout: ${selectedLayoutType.displayName}", Icons.Default.ViewQuilt, PageLayoutType.entries.map { it.displayName }) { selectedLayoutType = PageLayoutType.entries[it] }
+                        }
+
+                        VerticalDivider(Modifier.padding(vertical = 8.dp, horizontal = 8.dp))
+
+                        // NEW: Annexure Input
+                        if (selectedLayoutType == PageLayoutType.ENGINEERING_STD) {
+                            RibbonGroup("Header Info") {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("Annexure Value (X)", fontSize = 11.sp, color = Color.DarkGray)
+                                    Spacer(Modifier.height(4.dp))
+                                    // Use activeItem safely
+                                    if (activeItem != null) {
+                                        val currentVal = pageAnnexureValues[activeItem.id] ?: ""
+                                        BasicTextField(
+                                            value = currentVal,
+                                            onValueChange = { pageAnnexureValues[activeItem.id] = it },
+                                            textStyle = TextStyle(fontSize = 12.sp, textAlign = TextAlign.Center),
+                                            modifier = Modifier
+                                                .width(80.dp)
+                                                .height(24.dp)
+                                                .background(Color.White, RoundedCornerShape(4.dp))
+                                                .border(1.dp, Color.Gray, RoundedCornerShape(4.dp))
+                                                .wrapContentHeight(Alignment.CenterVertically)
+                                        )
+                                    } else {
+                                        Text("-", fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    "Borders" -> {
+                        RibbonGroup("Margins (mm)") {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Row {
+                                    RibbonNumberInput("Top", activeConfig.marginTop) { updateActiveConfig(activeConfig.copy(marginTop = it)) }
+                                    Spacer(Modifier.width(4.dp))
+                                    RibbonNumberInput("Bot", activeConfig.marginBottom) { updateActiveConfig(activeConfig.copy(marginBottom = it)) }
+                                }
+                                Row {
+                                    RibbonNumberInput("Left", activeConfig.marginLeft) { updateActiveConfig(activeConfig.copy(marginLeft = it)) }
+                                    Spacer(Modifier.width(4.dp))
+                                    RibbonNumberInput("Rgt", activeConfig.marginRight) { updateActiveConfig(activeConfig.copy(marginRight = it)) }
+                                }
+                            }
+                        }
+                        VerticalDivider(Modifier.padding(vertical = 8.dp, horizontal = 8.dp))
+
+                        RibbonGroup("Outer Border") {
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(activeConfig.showOuterBorder, { updateActiveConfig(activeConfig.copy(showOuterBorder = it)) }, Modifier.size(14.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Show", fontSize=11.sp)
+                                }
+                                Spacer(Modifier.height(8.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    RibbonNumberInput("Thick", activeConfig.outerThickness) { updateActiveConfig(activeConfig.copy(outerThickness = it)) }
+                                    Spacer(Modifier.width(8.dp))
+                                    ColorPickerButton(activeConfig.outerColor) { updateActiveConfig(activeConfig.copy(outerColor = it)) }
+                                }
+                            }
+                        }
+
+                        VerticalDivider(Modifier.padding(vertical = 8.dp, horizontal = 8.dp))
+
+                        val innerEnabled = activeConfig.showOuterBorder
+                        RibbonGroup("Inner Border") {
+                            Column(modifier = Modifier.alpha(if(innerEnabled) 1f else 0.4f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(
+                                        checked = activeConfig.showInnerBorder,
+                                        onCheckedChange = if(innerEnabled) { { updateActiveConfig(activeConfig.copy(showInnerBorder = it)) } } else null,
+                                        enabled = innerEnabled,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Show", fontSize=11.sp)
+                                    Spacer(Modifier.width(8.dp))
+                                    RibbonNumberInput("Gap", activeConfig.borderGap, innerEnabled) { updateActiveConfig(activeConfig.copy(borderGap = it)) }
+                                }
+                                Spacer(Modifier.height(8.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    RibbonNumberInput("Thick", activeConfig.innerThickness, innerEnabled) { updateActiveConfig(activeConfig.copy(innerThickness = it)) }
+                                    Spacer(Modifier.width(8.dp))
+                                    ColorPickerButton(activeConfig.innerColor) { if(innerEnabled) updateActiveConfig(activeConfig.copy(innerColor = it)) }
+                                }
+                            }
+                        }
+                    }
+
+                    "Annotation" -> {
+                        RibbonGroup("Insert") {
+                            Column(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(if(isTextToolActive) Color(0xFFE1EDFD) else Color.Transparent)
+                                    .border(1.dp, if(isTextToolActive) Color(0xFFA4C6F8) else Color.Transparent, RoundedCornerShape(4.dp))
+                                    .clickable { isTextToolActive = !isTextToolActive }
+                                    .padding(8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(Icons.Default.TextFields, null, tint = Color(0xFF2B579A), modifier = Modifier.size(24.dp))
+                                Spacer(Modifier.height(4.dp))
+                                Text("Text Box", fontSize = 11.sp, color = Color(0xFF2B579A), fontWeight = if(isTextToolActive) FontWeight.Bold else FontWeight.Normal)
+                            }
+                        }
+
+                        // Page Number Toggle
+                        VerticalDivider(Modifier.padding(vertical = 8.dp, horizontal = 8.dp))
+
+                        RibbonGroup("Page Elements") {
+                            val isBlank = selectedLayoutType == PageLayoutType.BLANK
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center,
+                                modifier = Modifier.alpha(if(isBlank) 1f else 0.4f)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(
+                                        checked = showPageNumber,
+                                        onCheckedChange = if(isBlank) { { showPageNumber = it } } else null,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Page No.", fontSize = 11.sp)
+                                }
+                            }
+                        }
+
+                        VerticalDivider(Modifier.padding(vertical = 8.dp, horizontal = 8.dp))
+
+                        RibbonGroup("Font") {
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    val styleOptions = listOf("Arial", "Times New Roman", "Courier New", "Verdana", "Georgia", "Comic Sans MS", "Impact")
+                                    RibbonDropdown(globalFontFamily, Icons.Default.FontDownload, styleOptions) { index ->
+                                        updateTextStyle(font = styleOptions[index])
+                                    }
+                                    Spacer(Modifier.width(8.dp))
+                                    RibbonNumberInput("Size", globalTextSize) { updateTextStyle(size = it) }
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    RibbonTextButton("B", globalIsBold) { updateTextStyle(bold = !globalIsBold) }
+                                    Spacer(Modifier.width(4.dp))
+                                    RibbonTextButton("I", globalIsItalic) { updateTextStyle(italic = !globalIsItalic) }
+                                    Spacer(Modifier.width(4.dp))
+                                    RibbonTextButton("U", globalIsUnderline) { updateTextStyle(underline = !globalIsUnderline) }
+                                    Spacer(Modifier.width(8.dp))
+                                    ColorPickerButton(globalTextColor) { updateTextStyle(color = it) }
+                                }
+                            }
+                        }
+
+                        VerticalDivider(Modifier.padding(vertical = 8.dp, horizontal = 8.dp))
+
+                        RibbonGroup("Paragraph") {
+                            Row {
+                                RibboniconButton(Icons.AutoMirrored.Filled.FormatAlignLeft, "", globalTextAlign == TextAlign.Left) { updateTextStyle(align = TextAlign.Left) }
+                                RibboniconButton(Icons.Default.FormatAlignCenter, "", globalTextAlign == TextAlign.Center) { updateTextStyle(align = TextAlign.Center) }
+                                RibboniconButton(Icons.AutoMirrored.Filled.FormatAlignRight, "", globalTextAlign == TextAlign.Right) { updateTextStyle(align = TextAlign.Right) }
+                                RibboniconButton(Icons.Default.FormatAlignJustify, "", globalTextAlign == TextAlign.Justify) { updateTextStyle(align = TextAlign.Justify) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ================= WORKSPACE WITH GLOBAL DRAG OVERLAY =================
         Box(
             modifier = Modifier
-                .padding(start = with(density){ contentLeft.toDp() }, top = with(density){ contentTop.toDp() })
-                .size(with(density){ contentW_px.toDp() }, with(density){ contentH_px.toDp() })
-                .clipToBounds()
-        ) {
-            if(item.data.isNotEmpty()){
-                Box(
-                    modifier = Modifier
-                        .offset { IntOffset((item.xOffset * graphScaleFactor).roundToInt(), (item.yOffset * graphScaleFactor).roundToInt()) }
-                        .size(with(density){ visualGraphW.toDp() }, with(density){ visualGraphH.toDp() })
-                        .pointerInput(Unit) {
-                            detectDragGestures { change, dragAmount ->
-                                change.consume()
-                                val graphScaleFactorF = graphScaleFactor.toFloat()
-                                val dx = dragAmount.x / graphScaleFactorF
-                                val dy = dragAmount.y / graphScaleFactorF
-                                onGraphPosChange(item.xOffset + dx, item.yOffset + dy)
-                            }
-                        }
-                ) {
-                    GraphPageCanvas(Modifier.fillMaxSize(), item.data, item.type, PaperSize.A4, true, hScale, vScale, config, showPre, showPost, preColor, postColor, preWidth, postWidth, preDotted, postDotted, preShowPoints, postShowPoints, showGrid, isTransparentOverlay = true)
+                .weight(1f)
+                .fillMaxWidth()
+                .background(Color(0xFF505050))
+                .padding(vertical = 20.dp, horizontal = 20.dp)
+                // --- CAPTURE PARENT POSITION ---
+                .onGloballyPositioned { layoutCoordinates ->
+                    parentOffset = layoutCoordinates.positionInWindow()
                 }
-            }
-        }
+        ) {
+            // 1. The Scrollable List of Pages
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                contentPadding = PaddingValues(bottom = 100.dp)
+            ) {
+                itemsIndexed(reportItems) { idx, item ->
+                    val isActive = idx == activePageIndex
 
-        // --- LAYER 3: TEXT BOXES ---
-        textAnnotations.forEachIndexed { index, txt ->
-            // !!! KEY CHANGE: Use key() to preserve state during list mutations !!!
-            key(txt.id) {
-                val isSelected = txt.id == selectedAnnotationId
-                var showContextMenu by remember { mutableStateOf(false) }
-
-                val xPx = paperW_px * txt.xPercent
-                val yPx = paperH_px * txt.yPercent
-                val wPx = paperW_px * txt.widthPercent
-                val hPx = paperH_px * txt.heightPercent
-
-                // We capture the absolute screen position of this annotation to help Global Drag
-                var absolutePosition by remember { mutableStateOf(Offset.Zero) }
-
-                Box(
-                    modifier = Modifier
-                        .offset { IntOffset(xPx.roundToInt(), yPx.roundToInt()) }
-                        .size(with(density) { wPx.toDp() }, with(density) { hPx.toDp() })
-                        .onGloballyPositioned { layoutCoordinates ->
-                            absolutePosition = layoutCoordinates.positionInWindow()
-                        }
-                        // *** VITAL CHANGE HERE: Set Alpha instead of removing from list ***
-                        .alpha(if (hiddenAnnotationId == txt.id) 0f else 1f)
-                        .drawBehind {
-                            if (isSelected) {
-                                val stroke = Stroke(
-                                    width = 1.dp.toPx(),
-                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f), 0f)
-                                )
-                                drawRect(
-                                    color = Color.LightGray,
-                                    style = stroke
-                                )
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(bottom = 4.dp)
+                            .onGloballyPositioned { layoutCoordinates ->
+                                val pos = layoutCoordinates.positionInWindow()
+                                val size = layoutCoordinates.size
+                                pageBounds[item.id] = Rect(pos, Size(size.width.toFloat(), size.height.toFloat()))
                             }
-                        }
-                        // Right Click Logic applied to container
-                        .pointerInput(Unit) {
-                            awaitPointerEventScope {
-                                while (true) {
-                                    val event = awaitPointerEvent(PointerEventPass.Initial)
-                                    if (event.buttons.isSecondaryPressed && event.changes.any { it.pressed }) {
-                                        event.changes.forEach { it.consume() }
-                                        onAnnotationSelected(txt.id)
-                                        showContextMenu = true
-                                    }
-                                }
-                            }
-                        }
-                        .pointerInput(Unit) {
-                            detectTapGestures(
-                                onTap = { onAnnotationSelected(txt.id) }
-                            )
-                        }
-                ) {
-                    // The Text Field
-                    BasicTextField(
-                        value = txt.text,
-                        enabled = isSelected,
-                        onValueChange = { str -> textAnnotations[index] = txt.copy(text = str) },
-                        textStyle = TextStyle(
-                            color = txt.color,
-                            fontSize = (txt.fontSize * zoomLevel).sp,
-                            fontWeight = if (txt.isBold) FontWeight.Bold else FontWeight.Normal,
-                            fontStyle = if (txt.isItalic) FontStyle.Italic else FontStyle.Normal,
-                            textDecoration = if (txt.isUnderline) TextDecoration.Underline else TextDecoration.None,
-                            textAlign = txt.textAlign,
-                            fontFamily = getFontFamily(txt.fontFamily)
-                        ),
-                        modifier = Modifier.fillMaxSize().padding(4.dp)
-                    )
-
-                    // Custom Single Menu
-                    DropdownMenu(
-                        expanded = showContextMenu,
-                        onDismissRequest = { showContextMenu = false }
                     ) {
-                        DropdownMenuItem(
-                            text = { Text("Delete", color = Color.Red) },
-                            onClick = {
-                                onDeleteAnnotation(txt.id)
-                                showContextMenu = false
-                            }
-                        )
-                    }
-
-                    // CONTROLS: Only visible when selected
-                    if (isSelected) {
-                        // 1. DRAG ICON (Bottom Center)
                         Box(
                             modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .offset(y = 20.dp)
-                                .size(18.dp)
-                                .background(Color(0xFFF0F0F0), CircleShape)
-                                .clip(CircleShape)
-                                .border(0.5.dp, Color.LightGray, CircleShape)
-                                .pointerInput(Unit) {
-                                    detectDragGestures(
-                                        onDragStart = {
-                                            // Tell parent we started dragging, passing current screen coords
-                                            onGlobalDragStart(txt, absolutePosition)
-                                        },
-                                        onDrag = { change, dragAmount ->
-                                            change.consume()
-                                            // Tell parent to move the ghost
-                                            onGlobalDrag(dragAmount)
-                                        },
-                                        onDragEnd = {
-                                            // Tell parent we let go
-                                            onGlobalDragEnd()
-                                        }
-                                    )
+                                .shadow(8.dp, RoundedCornerShape(0.dp))
+                                .border(
+                                    if(isActive) 2.dp else 0.dp,
+                                    if(isActive) Color(0xFF2B579A) else Color.Transparent
+                                )
+                        ) {
+                            val currentAnnotations = pageTextData[item.id] ?: mutableStateListOf()
+                            val currentAnnexure = pageAnnexureValues[item.id] ?: ""
+
+                            EditablePageContainer(
+                                item = item,
+                                pageNumber = idx + 1,
+                                totalPageCount = reportItems.size,
+                                annexureValue = currentAnnexure, // PASSING ANNEXURE VALUE
+                                paperSize = selectedPaperSize,
+                                layoutType = selectedLayoutType,
+                                isLandscape = isLandscape,
+                                config = pageConfigs[item.id] ?: ReportConfig(),
+                                zoomLevel = zoomPercent / 100f,
+                                textAnnotations = currentAnnotations,
+                                hScale = if (item.type == "L-Section") lHScale else xHScale,
+                                vScale = if (item.type == "L-Section") lVScale else xVScale,
+                                showPre = showPre, showPost = showPost, preColor = preColor, postColor = postColor,
+                                preDotted = preDotted, postDotted = postDotted, preWidth = preWidth, postWidth = postWidth,
+                                preShowPoints = preShowPoints, postShowPoints = postShowPoints, showGrid = showGrid,
+                                showPageNumber = showPageNumber,
+                                currentTextColor = globalTextColor,
+                                currentTextSize = globalTextSize,
+                                isBold = globalIsBold,
+                                isItalic = globalIsItalic,
+                                isUnderline = globalIsUnderline,
+                                currentTextAlign = globalTextAlign,
+                                currentFontFamily = globalFontFamily,
+                                isTextToolActive = isTextToolActive && isActive,
+                                selectedAnnotationId = if(isActive) selectedAnnotationId else null,
+                                canPaste = clipboardAnnotation != null,
+                                onAnnotationSelected = { id ->
+                                    selectedAnnotationId = id
+                                    if(id != null) activePageIndex = idx
                                 },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                Icons.Default.DragIndicator,
-                                contentDescription = "Drag",
-                                tint = Color.Gray,
-                                modifier = Modifier.size(12.dp)
-                            )
-                        }
-
-                        // 2. RESIZE HANDLES (Small dots on border lines)
-                        val handleSize = 6.dp
-                        val handleColor = Color.LightGray
-
-                        @Composable
-                        fun ResizeHandle(alignment: Alignment, onDrag: (Float, Float) -> Unit) {
-                            Box(
-                                modifier = Modifier
-                                    .align(alignment)
-                                    .size(handleSize)
-                                    .background(handleColor, CircleShape)
-                                    .pointerInput(Unit) {
-                                        detectDragGestures { change, dragAmount ->
-                                            change.consume()
-                                            onDrag(dragAmount.x, dragAmount.y)
-                                        }
+                                onPageSelected = {
+                                    activePageIndex = idx
+                                    selectedAnnotationId = null
+                                },
+                                onToolUsed = { isTextToolActive = false },
+                                onGraphPosChange = { x, y -> reportItems[idx] = item.copy(xOffset = x, yOffset = y) },
+                                onDeleteAnnotation = { id ->
+                                    pageTextData[item.id]?.removeAll { it.id == id }
+                                    selectedAnnotationId = null
+                                },
+                                onCopyAnnotation = { txt -> clipboardAnnotation = txt },
+                                onPasteAnnotation = {
+                                    clipboardAnnotation?.let { copied ->
+                                        val newTxt = copied.copy(
+                                            id = java.util.UUID.randomUUID().toString(),
+                                            xPercent = 0.4f, yPercent = 0.4f
+                                        )
+                                        pageTextData[item.id]?.add(newTxt)
+                                        selectedAnnotationId = newTxt.id
                                     }
-                            )
-                        }
+                                },
+                                // Pass hidden ID
+                                hiddenAnnotationId = if(draggingAnnotation != null && draggingSourcePageId == item.id) draggingAnnotation!!.id else null,
 
-                        fun updateResize(
-                            dx: Float,
-                            dy: Float,
-                            isLeft: Boolean,
-                            isTop: Boolean,
-                            lockX: Boolean = false,
-                            lockY: Boolean = false
-                        ) {
-                            val currTxt = textAnnotations[index]
-                            val cx = currentPaperW * currTxt.xPercent
-                            val cy = currentPaperH * currTxt.yPercent
-                            val cw = currentPaperW * currTxt.widthPercent
-                            val ch = currentPaperH * currTxt.heightPercent
+                                // Global Drag Handlers
+                                onGlobalDragStart = { annotation, absoluteStartPos ->
+                                    draggingAnnotation = annotation
+                                    draggingSourcePageId = item.id
+                                    draggingCurrentOffset = absoluteStartPos
+                                    selectedAnnotationId = annotation.id
+                                },
+                                onGlobalDrag = { dragDelta ->
+                                    draggingCurrentOffset += dragDelta
+                                },
+                                onGlobalDragEnd = {
+                                    try {
+                                        var droppedPageId: String? = null
+                                        // 1. Identify Target Page
+                                        for ((pId, rect) in pageBounds) {
+                                            if (rect.contains(draggingCurrentOffset)) {
+                                                droppedPageId = pId
+                                                break
+                                            }
+                                        }
 
-                            var nx = cx
-                            var ny = cy
-                            var nw = cw
-                            var nh = ch
+                                        // 2. Process Move
+                                        if (droppedPageId != null && draggingAnnotation != null) {
+                                            val targetRect = pageBounds[droppedPageId]!!
 
-                            if (!lockX) {
-                                if (isLeft) {
-                                    nx += dx; nw -= dx
-                                } else {
-                                    nw += dx
+                                            val relX = (draggingCurrentOffset.x - targetRect.left) / targetRect.width
+                                            val relY = (draggingCurrentOffset.y - targetRect.top) / targetRect.height
+
+                                            val movedAnnotation = draggingAnnotation!!.copy(
+                                                xPercent = relX.toFloat(),
+                                                yPercent = relY.toFloat()
+                                            )
+
+                                            // Remove from source
+                                            pageTextData[draggingSourcePageId!!]?.removeAll { it.id == draggingAnnotation!!.id }
+
+                                            // Add to target
+                                            pageTextData[droppedPageId]?.add(movedAnnotation)
+
+                                            val newIdx = reportItems.indexOfFirst { it.id == droppedPageId }
+                                            if(newIdx != -1) activePageIndex = newIdx
+                                        }
+                                    } finally {
+                                        // 3. Reset (Crucial for visibility)
+                                        draggingAnnotation = null
+                                        draggingSourcePageId = null
+                                    }
                                 }
-                            }
-                            if (!lockY) {
-                                if (isTop) {
-                                    ny += dy; nh -= dy
-                                } else {
-                                    nh += dy
-                                }
-                            }
-
-                            if (nw < 20f) {
-                                if (isLeft && !lockX) nx = cx; nw = 20f
-                            }
-                            if (nh < 20f) {
-                                if (isTop && !lockY) ny = cy; nh = 20f
-                            }
-
-                            textAnnotations[index] = currTxt.copy(
-                                xPercent = nx / currentPaperW,
-                                yPercent = ny / currentPaperH,
-                                widthPercent = nw / currentPaperW,
-                                heightPercent = nh / currentPaperH
-                            )
-                        }
-
-                        ResizeHandle(Alignment.TopCenter) { x, y ->
-                            updateResize(
-                                x,
-                                y,
-                                false,
-                                true,
-                                lockX = true
-                            )
-                        }
-                        ResizeHandle(Alignment.BottomCenter) { x, y ->
-                            updateResize(
-                                x,
-                                y,
-                                false,
-                                false,
-                                lockX = true
-                            )
-                        }
-                        ResizeHandle(Alignment.CenterStart) { x, y ->
-                            updateResize(
-                                x,
-                                y,
-                                true,
-                                false,
-                                lockY = true
-                            )
-                        }
-                        ResizeHandle(Alignment.CenterEnd) { x, y ->
-                            updateResize(
-                                x,
-                                y,
-                                false,
-                                false,
-                                lockY = true
-                            )
-                        }
-
-                        ResizeHandle(Alignment.TopStart) { x, y -> updateResize(x, y, true, true) }
-                        ResizeHandle(Alignment.TopEnd) { x, y -> updateResize(x, y, false, true) }
-                        ResizeHandle(Alignment.BottomStart) { x, y ->
-                            updateResize(
-                                x,
-                                y,
-                                true,
-                                false
-                            )
-                        }
-                        ResizeHandle(Alignment.BottomEnd) { x, y ->
-                            updateResize(
-                                x,
-                                y,
-                                false,
-                                false
                             )
                         }
                     }
                 }
             }
-        }
-    }
-}
 
-// --- RIBBON COMPONENTS ---
-
-@Composable
-fun RibbonTab(text: String, isActive: Boolean, onClick: () -> Unit) {
-    Column(
-        modifier = Modifier.clickable(onClick = onClick).padding(horizontal = 24.dp, vertical = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(text, fontSize = 13.sp, fontWeight = if(isActive) FontWeight.Bold else FontWeight.Normal, color = if(isActive) Color(0xFF2B579A) else Color.Black)
-        if (isActive) Box(Modifier.height(3.dp).width(40.dp).background(Color(0xFF2B579A), RoundedCornerShape(topStart=2.dp, topEnd=2.dp)))
-    }
-}
-
-@Composable
-fun RibbonGroup(label: String, content: @Composable RowScope.() -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxHeight().padding(horizontal = 6.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, content = content)
-        Text(label, fontSize = 10.sp, color = Color.Gray, modifier = Modifier.padding(bottom = 2.dp))
-    }
-}
-
-@Composable
-fun RibbonLargeButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, color: Color = Color(0xFF2B579A), onClick: () -> Unit) {
-    Column(modifier = Modifier.clip(RoundedCornerShape(4.dp)).clickable(onClick = onClick).padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(icon, null, tint = color, modifier = Modifier.size(24.dp))
-        Spacer(Modifier.height(4.dp))
-        Text(label, fontSize = 11.sp, textAlign = TextAlign.Center, lineHeight = 11.sp, color = color)
-    }
-}
-
-@Composable
-fun RibboniconButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, isActive: Boolean, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .background(if(isActive) Color(0xFFE1EDFD) else Color.Transparent, RoundedCornerShape(4.dp))
-            .border(1.dp, if(isActive) Color(0xFFA4C6F8) else Color.Transparent, RoundedCornerShape(4.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 6.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(icon, null, modifier = Modifier.size(16.dp), tint = if(isActive) Color(0xFF2B579A) else Color.Black)
-        if(label.isNotEmpty()) {
-            Spacer(Modifier.width(4.dp))
-            Text(label, fontSize = 11.sp, color = if(isActive) Color(0xFF2B579A) else Color.Black)
-        }
-    }
-}
-
-@Composable
-fun RibbonTextButton(text: String, isActive: Boolean, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .background(if(isActive) Color(0xFFE1EDFD) else Color.Transparent, RoundedCornerShape(4.dp))
-            .border(1.dp, if(isActive) Color(0xFFA4C6F8) else Color.Transparent, RoundedCornerShape(4.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(text, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if(isActive) Color(0xFF2B579A) else Color.Black)
-    }
-}
-
-@Composable
-fun RibbonDropdown(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, options: List<String>, onSelect: (Int) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.border(1.dp, Color.LightGray, RoundedCornerShape(4.dp)).clip(RoundedCornerShape(4.dp)).clickable { expanded = true }.padding(6.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, null, modifier = Modifier.size(16.dp), tint = Color(0xFF2B579A))
-            Spacer(Modifier.width(4.dp))
-            Text(label, fontSize = 11.sp)
-            Spacer(Modifier.width(4.dp))
-            Icon(Icons.Default.ArrowDropDown, null, modifier = Modifier.size(14.dp))
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            options.forEachIndexed { idx, opt -> DropdownMenuItem(text = { Text(opt) }, onClick = { onSelect(idx); expanded = false }) }
-        }
-    }
-}
-
-@Composable
-fun RibbonNumberInput(label: String, value: Float, enabled: Boolean = true, onChange: (Float) -> Unit) {
-    var textValue by remember(value) { mutableStateOf(if(value == 0f) "" else value.toString()) }
-
-    LaunchedEffect(value) {
-        if(textValue.toFloatOrNull() != value) {
-            textValue = if(value == 0f) "" else value.toString()
-        }
-    }
-
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(label, fontSize = 11.sp, color = if(enabled) Color.DarkGray else Color.LightGray, modifier = Modifier.width(30.dp))
-        BasicTextField(
-            value = textValue,
-            enabled = enabled,
-            onValueChange = { str ->
-                textValue = str
-                val num = str.toFloatOrNull()
-                if (num != null) {
-                    onChange(num)
+            // 2. The Ghost Annotation (Overlay)
+            if (draggingAnnotation != null) {
+                val ghost = draggingAnnotation!!
+                Box(
+                    modifier = Modifier
+                        // Calculate offset relative to this Box
+                        .offset { IntOffset((draggingCurrentOffset.x - parentOffset.x).roundToInt(), (draggingCurrentOffset.y - parentOffset.y).roundToInt()) }
+                        .background(Color.White.copy(alpha=0.8f))
+                        .border(1.dp, Color.Gray, RoundedCornerShape(4.dp))
+                        .padding(4.dp)
+                ) {
+                    Text(
+                        text = ghost.text,
+                        color = ghost.color,
+                        fontSize = (ghost.fontSize * (zoomPercent/100f)).sp,
+                        fontWeight = if(ghost.isBold) FontWeight.Bold else FontWeight.Normal,
+                        fontStyle = if(ghost.isItalic) FontStyle.Italic else FontStyle.Normal,
+                        textDecoration = if(ghost.isUnderline) TextDecoration.Underline else TextDecoration.None,
+                        textAlign = ghost.textAlign,
+                        fontFamily = getFontFamily(ghost.fontFamily)
+                    )
                 }
-            },
-            textStyle = TextStyle(fontSize = 11.sp, textAlign = TextAlign.Center),
+            }
+        }
+
+        // ================= STATUS BAR =================
+        Row(
             modifier = Modifier
-                .width(40.dp)
-                .background(if(enabled) Color.White else Color(0xFFEEEEEE), RoundedCornerShape(2.dp))
-                .border(1.dp, Color.LightGray, RoundedCornerShape(2.dp))
-                .padding(3.dp)
-        )
+                .fillMaxWidth()
+                .background(Color(0xFF2B579A))
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Page ${activePageIndex + 1} of ${reportItems.size}", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+
+            Spacer(Modifier.width(16.dp))
+
+            IconButton(onClick = {
+                val newItem = ReportPageItem(graphId = -200.0, type = "Blank", data = emptyList())
+                reportItems.add(newItem)
+                pageConfigs[newItem.id] = ReportConfig()
+                pageTextData[newItem.id] = mutableStateListOf()
+                pageAnnexureValues[newItem.id] = "" // Init annexure
+                scope.launch {
+                    listState.animateScrollToItem(reportItems.lastIndex)
+                    activePageIndex = reportItems.lastIndex
+                }
+            }, modifier = Modifier.size(24.dp)) {
+                Icon(Icons.Default.NoteAdd, "New Page", tint = Color.White, modifier = Modifier.size(16.dp))
+            }
+
+            IconButton(onClick = {
+                if (reportItems.size > 0 && activePageIndex < reportItems.size) {
+                    val id = reportItems[activePageIndex].id
+                    reportItems.removeAt(activePageIndex)
+                    pageConfigs.remove(id)
+                    pageTextData.remove(id)
+                    pageAnnexureValues.remove(id) // Remove annexure
+                    if (reportItems.isEmpty()) {
+                        val newItem = ReportPageItem(graphId = -200.0, type = "Blank", data = emptyList())
+                        reportItems.add(newItem)
+                        pageConfigs[newItem.id] = ReportConfig()
+                        pageTextData[newItem.id] = mutableStateListOf()
+                        pageAnnexureValues[newItem.id] = ""
+                    }
+                    activePageIndex = activePageIndex.coerceAtMost(reportItems.lastIndex)
+                }
+            }, modifier = Modifier.size(24.dp)) {
+                Icon(Icons.Default.Delete, "Delete Page", tint = Color.Red, modifier = Modifier.size(16.dp))
+            }
+
+            Spacer(Modifier.weight(1f))
+            Text("-", color = Color.White, modifier = Modifier.clickable { if(zoomPercent>30) zoomPercent-=5 }.padding(horizontal=4.dp))
+            Slider(
+                value = zoomPercent, onValueChange = { zoomPercent = it },
+                valueRange = 30f..200f,
+                modifier = Modifier.width(100.dp),
+                colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color.White)
+            )
+            Text("+", color = Color.White, modifier = Modifier.clickable { if(zoomPercent<200) zoomPercent+=5 }.padding(horizontal=4.dp))
+            Text("${zoomPercent.toInt()}%", color = Color.White, fontSize = 11.sp, modifier = Modifier.width(30.dp))
+        }
     }
 }

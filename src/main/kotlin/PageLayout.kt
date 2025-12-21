@@ -10,6 +10,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
+import kotlin.math.round
 
 enum class PageLayoutType(val displayName: String) {
     BLANK("Blank"),
@@ -26,8 +27,11 @@ fun DrawScope.drawPageLayout(
     marginRightPx: Float,
     marginBottomPx: Float,
     borderColor: Color,
-    borderThickness: Float, // This is user setting (ignored for internal layout lines now)
-    textMeasurer: TextMeasurer
+    borderThickness: Float,
+    textMeasurer: TextMeasurer,
+    pageNumber: Int,
+    totalPageCount: Int,
+    annexureValue: String // NEW PARAMETER: User input for "X"
 ) {
     if (type == PageLayoutType.BLANK) return
 
@@ -78,13 +82,12 @@ fun DrawScope.drawPageLayout(
         x1: Float, y1: Float, x2: Float, y2: Float,
         isBold: Boolean = false,
         color: Color = Color.Black,
-        scaleFactor: Float = 0.40f // Increased Default Size
+        scaleFactor: Float = 0.40f // Default increased size
     ) {
         val centerX = x1 + (x2 - x1) / 2
         val centerY = y1 + (y2 - y1) / 2
 
         // Convert scale unit to SP using DrawScope's density context
-        // This ensures crisp rendering on high-DPI screens
         val fontSizeSp = with(this) { (scale * scaleFactor).toSp() }
 
         val style = TextStyle(
@@ -100,15 +103,19 @@ fun DrawScope.drawPageLayout(
             style = style
         )
 
+        // Pixel Snapping
+        val drawX = round(centerX - layoutResult.size.width / 2)
+        val drawY = round(centerY - layoutResult.size.height / 2)
+
         drawText(
             textLayoutResult = layoutResult,
-            topLeft = Offset(centerX - layoutResult.size.width / 2, centerY - layoutResult.size.height / 2)
+            topLeft = Offset(drawX, drawY)
         )
     }
 
     // --- HELPER: Draw ID (For remaining dynamic/debug boxes) ---
     fun drawId(id: String, x1: Float, y1: Float, x2: Float, y2: Float) {
-        drawBoxText(id, x1, y1, x2, y2, isBold = false, color = Color.Red.copy(alpha = 0.3f), scaleFactor = 0.25f)
+        drawBoxText(id, x1, y1, x2, y2, isBold = false, color = Color.Red.copy(alpha = 0.3f), scaleFactor = 0.40f)
     }
 
     if (type == PageLayoutType.ENGINEERING_STD) {
@@ -117,7 +124,10 @@ fun DrawScope.drawPageLayout(
         // 1. Logo (Top Right)
         drawLine(borderColor, Offset(right - logoW, top), Offset(right - logoW, top + logoH), layoutStrokeWidth) // Left vertical
         drawLine(borderColor, Offset(right - logoW, top + logoH), Offset(right, top + logoH), layoutStrokeWidth) // Bottom horizontal
-        drawId("LOGO", right - logoW, top, right, top + logoH)
+
+        // REPLACED LOGO WITH ANNEXURE-X
+        // Using slightly smaller scale factor to ensure "Annexure-X" fits in the square box
+        drawBoxText("Annexure-$annexureValue", right - logoW, top, right, top + logoH, isBold = false, scaleFactor = 0.40f)
 
         // 2. Footer Outline
         // Main Left Boundary (A-Start)
@@ -156,25 +166,26 @@ fun DrawScope.drawPageLayout(
 
         // --- STATIC TEXT & IDS ---
 
-        // NEW: Legend Text above A1
+        // Legend Text above A1
         val legendX = x_A_Start + (0.3f * scale)
-        val legendY = y_Footer_Top - (0.4f * scale) // Slightly above the line
+        val legendY = y_Footer_Top - (0.6f * scale)
         val legendStyle = TextStyle(
             color = Color.Black,
-            fontSize = with(this) { (scale * 0.40f).toSp() }, // Match standard size
+            fontSize = with(this) { (scale * 0.40f).toSp() },
             fontFamily = FontFamily.Serif,
-            fontWeight = FontWeight.Normal // No Bold
+            fontWeight = FontWeight.Normal
         )
-        drawText(textMeasurer, "LEGEND:-", Offset(legendX, legendY), legendStyle)
+        drawText(textMeasurer, "LEGEND:-", Offset(round(legendX), round(legendY)), legendStyle)
 
         // D5: All dimensions in meters(m)
-        drawBoxText("All dimensions in meters(m)", x_D_Start, y_D5_Top, right, y_Footer_Top, isBold = false, scaleFactor = 0.35f)
+        drawBoxText("All dimensions in meters(m)", x_D_Start, y_D5_Top, right, y_Footer_Top, isBold = false, scaleFactor = 0.38f)
 
         // D1 (Split L/R)
         // D1-Left: SCALE
         drawBoxText("SCALE", x_D_Start, y_Footer_Top, x_D_Split, y_Row_Mid1, isBold = false, scaleFactor = 0.40f)
-        // D1-Right: Dynamic (Keep ID or Blank for now)
-        drawId("d1-r", x_D_Split, y_Footer_Top, right, y_Row_Mid1)
+
+        // D1-Right: AUTO REPLACE WITH LOGO TEXT (Annexure-X)
+        drawBoxText("Annexure-$annexureValue", x_D_Split, y_Footer_Top, right, y_Row_Mid1, isBold = false, scaleFactor = 0.40f)
 
         // D2
         drawId("d2", x_D_Start, y_Row_Mid1, x_D_Split, bottom)
@@ -182,12 +193,12 @@ fun DrawScope.drawPageLayout(
         // D3: SHEET NO.
         drawBoxText("SHEET NO.", x_D_Split, y_Row_Mid1, right, y_Row_Mid2, isBold = false, scaleFactor = 0.40f)
 
-        // D4
-        drawId("d4", x_D_Split, y_Row_Mid2, right, bottom)
+        // D4: PAGE NO (x of y) - COLOR BLUE
+        drawBoxText("$pageNumber of $totalPageCount", x_D_Split, y_Row_Mid2, right, bottom, isBold = false, color = Color.Blue, scaleFactor = 0.40f)
 
-        // C1: Civil Engineering Dept... (Needs smaller font to fit multiple lines)
+        // C1: Civil Engineering Dept...
         val c1Text = "Civil Engineering Department\nIndian Institute of Technology Roorkee\nRoorkee -247667"
-        drawBoxText(c1Text, x_C_Start, y_Footer_Top, x_D_Start, bottom, isBold = false, scaleFactor = 0.32f)
+        drawBoxText(c1Text, x_C_Start, y_Footer_Top, x_D_Start, bottom, isBold = false, scaleFactor = 0.40f)
 
         // B1
         drawId("b1", x_B_Start, y_Footer_Top, x_C_Start, bottom)
