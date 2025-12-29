@@ -48,7 +48,9 @@ data class ReportConfig(
     val showInnerBorder: Boolean = false,
     val innerThickness: Float = 1f,
     val innerColor: Color = Color.Black,
-    val borderGap: Float = 5f
+    val borderGap: Float = 5f,
+    // MODIFICATION: Added legendType to store user selection (Requirement 1)
+    var legendType: String = "X-Section"
 )
 
 data class GraphDimensions(val width: Double, val height: Double)

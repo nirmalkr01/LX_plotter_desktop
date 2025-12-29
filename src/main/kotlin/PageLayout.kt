@@ -1,6 +1,7 @@
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.TextMeasurer
@@ -31,7 +32,15 @@ fun DrawScope.drawPageLayout(
     textMeasurer: TextMeasurer,
     pageNumber: Int,
     totalPageCount: Int,
-    annexureValue: String // NEW PARAMETER: User input for "X"
+    annexureValue: String, // User input for "X"
+    b1Text: String, // NEW: User input for B1 Box
+    legendType: String = "X-Section",
+    preColor: Color = Color.Black,
+    postColor: Color = Color.Black,
+    preDotted: Boolean = false,
+    postDotted: Boolean = false,
+    hScale: Double = 1.0,
+    vScale: Double = 1.0
 ) {
     if (type == PageLayoutType.BLANK) return
 
@@ -68,7 +77,7 @@ fun DrawScope.drawPageLayout(
     val x_D_Split = x_D_Start + (3.7f * scale)
 
     // 4. Calculate Y Positions (Anchored to BOTTOM Margin)
-    val y_Row1 = bottom - rowH       // Top of Row 1 (Bottom of D1/A1)
+    val y_Row1 = bottom - rowH        // Top of Row 1 (Bottom of D1/A1)
     val y_Footer_Top = bottom - (3 * rowH)
     val y_Row_Mid1 = bottom - (2 * rowH)
     val y_Row_Mid2 = bottom - rowH
@@ -82,7 +91,8 @@ fun DrawScope.drawPageLayout(
         x1: Float, y1: Float, x2: Float, y2: Float,
         isBold: Boolean = false,
         color: Color = Color.Black,
-        scaleFactor: Float = 0.40f // Default increased size
+        scaleFactor: Float = 0.40f, // Default increased size
+        font: FontFamily = FontFamily.Serif // Default Times New Roman equivalent
     ) {
         val centerX = x1 + (x2 - x1) / 2
         val centerY = y1 + (y2 - y1) / 2
@@ -94,7 +104,7 @@ fun DrawScope.drawPageLayout(
             color = color,
             fontSize = fontSizeSp,
             fontWeight = if (isBold) FontWeight.Bold else FontWeight.Normal,
-            fontFamily = FontFamily.Serif, // Times New Roman equivalent
+            fontFamily = font,
             textAlign = TextAlign.Center
         )
 
@@ -178,7 +188,7 @@ fun DrawScope.drawPageLayout(
         drawText(textMeasurer, "LEGEND:-", Offset(round(legendX), round(legendY)), legendStyle)
 
         // D5: All dimensions in meters(m)
-        drawBoxText("All dimensions in meters(m)", x_D_Start, y_D5_Top, right, y_Footer_Top, isBold = false, scaleFactor = 0.38f)
+        drawBoxText("All dimensions in meters(m)", x_D_Start, y_D5_Top, right, y_Footer_Top, isBold = false, scaleFactor = 0.40f)
 
         // D1 (Split L/R)
         // D1-Left: SCALE
@@ -187,8 +197,9 @@ fun DrawScope.drawPageLayout(
         // D1-Right: AUTO REPLACE WITH LOGO TEXT (Annexure-X)
         drawBoxText("Annexure-$annexureValue", x_D_Split, y_Footer_Top, right, y_Row_Mid1, isBold = false, scaleFactor = 0.40f)
 
-        // D2
-        drawId("d2", x_D_Start, y_Row_Mid1, x_D_Split, bottom)
+        // MODIFICATION: Requirement 4 - D2 Scales
+        val scaleStr = "1:${hScale.toInt()} (H)\n1:${vScale.toInt()} (V)"
+        drawBoxText(scaleStr, x_D_Start, y_Row_Mid1, x_D_Split, bottom, isBold = false, scaleFactor = 0.40f)
 
         // D3: SHEET NO.
         drawBoxText("SHEET NO.", x_D_Split, y_Row_Mid1, right, y_Row_Mid2, isBold = false, scaleFactor = 0.40f)
@@ -200,8 +211,9 @@ fun DrawScope.drawPageLayout(
         val c1Text = "Civil Engineering Department\nIndian Institute of Technology Roorkee\nRoorkee -247667"
         drawBoxText(c1Text, x_C_Start, y_Footer_Top, x_D_Start, bottom, isBold = false, scaleFactor = 0.40f)
 
-        // B1
-        drawId("b1", x_B_Start, y_Footer_Top, x_C_Start, bottom)
+        // B1: NEW FEATURE - User input text
+        // Uses the position of B column (x_B_Start to x_C_Start)
+        drawBoxText(b1Text, x_B_Start, y_Footer_Top, x_C_Start, bottom, isBold = false, scaleFactor = 0.40f)
 
         // A Cols - Top Row
         // A1: DESCRIPTION
@@ -209,12 +221,37 @@ fun DrawScope.drawPageLayout(
         // A2: SYMBOL
         drawBoxText("SYMBOL", x_A_Split, y_Footer_Top, x_B_Start, y_Row_Mid1, isBold = false, scaleFactor = 0.40f)
 
-        // A Cols - Mid Row
-        drawId("a3", x_A_Start, y_Row_Mid1, x_A_Split, y_Row_Mid2)
-        drawId("a4", x_A_Split, y_Row_Mid1, x_B_Start, y_Row_Mid2)
+        // MODIFICATION: Requirement 2 - A3 (Post Monsoon Text)
+        drawBoxText("Post Monsoon", x_A_Start, y_Row_Mid1, x_A_Split, y_Row_Mid2, isBold = false, color = postColor, font = FontFamily.Serif)
 
-        // A Cols - Bot Row
-        drawId("a5", x_A_Start, y_Row_Mid2, x_A_Split, bottom)
-        drawId("a6", x_A_Split, y_Row_Mid2, x_B_Start, bottom)
+        // MODIFICATION: Requirement 3 - A4 (Post Monsoon Line)
+        val cxA4 = x_A_Split + (x_B_Start - x_A_Split) / 2
+        val cyA4 = y_Row_Mid1 + (y_Row_Mid2 - y_Row_Mid1) / 2
+
+        // Ensure line is exactly 3 units
+        val legendLineLen = 3.0f * scale
+
+        val postEffect = if(postDotted) {
+            // 11 splits: 6 dashes + 5 gaps
+            val dashLen = legendLineLen / 11f
+            PathEffect.dashPathEffect(floatArrayOf(dashLen, dashLen), 0f)
+        } else null
+
+        drawLine(postColor, Offset(cxA4 - legendLineLen/2, cyA4), Offset(cxA4 + legendLineLen/2, cyA4), strokeWidth = 1f, pathEffect = postEffect)
+
+        // MODIFICATION: Requirement 2 - A5 (Pre Monsoon Text)
+        drawBoxText("Pre Monsoon", x_A_Start, y_Row_Mid2, x_A_Split, bottom, isBold = false, color = preColor, font = FontFamily.Serif)
+
+        // MODIFICATION: Requirement 3 - A6 (Pre Monsoon Line)
+        val cxA6 = x_A_Split + (x_B_Start - x_A_Split) / 2
+        val cyA6 = y_Row_Mid2 + (bottom - y_Row_Mid2) / 2
+
+        val preEffect = if(preDotted) {
+            // 11 splits: 6 dashes + 5 gaps
+            val dashLen = legendLineLen / 11f
+            PathEffect.dashPathEffect(floatArrayOf(dashLen, dashLen), 0f)
+        } else null
+
+        drawLine(preColor, Offset(cxA6 - legendLineLen/2, cyA6), Offset(cxA6 + legendLineLen/2, cyA6), strokeWidth = 1f, pathEffect = preEffect)
     }
 }

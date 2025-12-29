@@ -1,4 +1,3 @@
-// D:\LX-plotter_desktop\LX_plotter_desktop\src\main\kotlin\FilePanelComponents.kt
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -77,13 +76,15 @@ fun EditablePageContainer(
     item: ReportPageItem,
     pageNumber: Int,
     totalPageCount: Int,
-    annexureValue: String, // NEW PARAMETER
+    annexureValue: String,
+    b1Text: String,
     paperSize: PaperSize,
     layoutType: PageLayoutType,
     isLandscape: Boolean,
     config: ReportConfig,
     zoomLevel: Float,
     textAnnotations: MutableList<TextAnnotation>,
+    elements: MutableList<ReportElement>, // NEW: List of elements
     hScale: Double, vScale: Double,
     showPre: Boolean, showPost: Boolean,
     preColor: java.awt.Color, postColor: java.awt.Color,
@@ -98,12 +99,15 @@ fun EditablePageContainer(
     currentFontFamily: String,
     isTextToolActive: Boolean,
     selectedAnnotationId: String?,
+    selectedElementId: String?, // NEW
     canPaste: Boolean,
     onAnnotationSelected: (String?) -> Unit,
+    onElementSelected: (String?) -> Unit, // NEW
     onPageSelected: () -> Unit,
     onToolUsed: () -> Unit,
     onGraphPosChange: (Float, Float) -> Unit,
     onDeleteAnnotation: (String) -> Unit,
+    onDeleteElement: (String) -> Unit, // NEW
     onCopyAnnotation: (TextAnnotation) -> Unit,
     onPasteAnnotation: () -> Unit,
     // --- CALLBACKS FOR GLOBAL DRAG ---
@@ -193,7 +197,6 @@ fun EditablePageContainer(
             }
 
             // --- DRAW SPECIFIC PAGE LAYOUT (A1 Style etc) ---
-            // Determine effective boundaries based on Inner Border toggle
             val layoutML = if (config.showInnerBorder) innerLeftPx else mLeftPx
             val layoutMT = if (config.showInnerBorder) innerTopPx else mTopPx
             val layoutMR = if (config.showInnerBorder) innerRightPx else mRightPx
@@ -212,10 +215,17 @@ fun EditablePageContainer(
                 borderThickness = config.outerThickness,
                 pageNumber = pageNumber,
                 totalPageCount = totalPageCount,
-                annexureValue = annexureValue // Pass annexure value
+                annexureValue = annexureValue,
+                b1Text = b1Text,
+                legendType = config.legendType,
+                preColor = Color(preColor.red, preColor.green, preColor.blue),
+                postColor = Color(postColor.red, postColor.green, postColor.blue),
+                preDotted = preDotted,
+                postDotted = postDotted,
+                hScale = hScale,
+                vScale = vScale
             )
 
-            // Show page number only in Blank layout if enabled
             if (layoutType == PageLayoutType.BLANK && showPageNumber) {
                 val pageStr = "$pageNumber"
                 val textLayout = textMeasurer.measure(pageStr, style = TextStyle(fontSize = 12.sp, color = Color.Black, fontWeight = FontWeight.Bold))
@@ -231,13 +241,10 @@ fun EditablePageContainer(
         }
         val visualGraphW = (graphDim.width * graphScaleFactor).toFloat()
         val visualGraphH = (graphDim.height * graphScaleFactor).toFloat()
-
-        // Content area respects borders too
         val contentLeft = if(config.showInnerBorder) innerLeftPx else mLeftPx
         val contentTop = if(config.showInnerBorder) innerTopPx else mTopPx
         val contentRight = if(config.showInnerBorder) innerRightPx else mRightPx
         val contentBottom = if(config.showInnerBorder) innerBottomPx else mBottomPx
-
         val contentW_px = paperW_px - contentLeft - contentRight
         val contentH_px = paperH_px - contentTop - contentBottom
 
@@ -267,9 +274,87 @@ fun EditablePageContainer(
             }
         }
 
-        // --- LAYER 3: TEXT BOXES ---
+        // --- LAYER 3: ELEMENTS (SHAPES) ---
+        elements.forEachIndexed { index, el ->
+            key(el.id) {
+                val isSelected = el.id == selectedElementId
+                var showContextMenu by remember { mutableStateOf(false) }
+
+                val xPx = paperW_px * el.xPercent
+                val yPx = paperH_px * el.yPercent
+                val wPx = paperW_px * el.widthPercent
+                val hPx = paperH_px * el.heightPercent
+
+                Box(
+                    modifier = Modifier
+                        .offset { IntOffset(xPx.roundToInt(), yPx.roundToInt()) }
+                        .size(with(density) { wPx.toDp() }, with(density) { hPx.toDp() })
+                        .drawBehind {
+                            if (isSelected) {
+                                val stroke = Stroke(width = 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f), 0f))
+                                drawRect(color = Color.Blue, style = stroke)
+                            }
+                        }
+                        .pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                                    if (event.buttons.isSecondaryPressed && event.changes.any { it.pressed }) {
+                                        event.changes.forEach { it.consume() }
+                                        onElementSelected(el.id)
+                                        showContextMenu = true
+                                    }
+                                }
+                            }
+                        }
+                        .pointerInput(Unit) { detectTapGestures(onTap = { onElementSelected(el.id) }) }
+                ) {
+                    ElementRenderer(el)
+
+                    DropdownMenu(expanded = showContextMenu, onDismissRequest = { showContextMenu = false }) {
+                        DropdownMenuItem(text = { Text("Delete", color = Color.Red) }, onClick = { onDeleteElement(el.id); showContextMenu = false })
+                    }
+
+                    if (isSelected) {
+                        // DRAG ICON
+                        Box(modifier = Modifier.align(Alignment.BottomCenter).offset(y = 20.dp).size(18.dp).background(Color(0xFFF0F0F0), CircleShape).clip(CircleShape).border(0.5.dp, Color.LightGray, CircleShape).pointerInput(Unit) {
+                            detectDragGestures { change, dragAmount ->
+                                change.consume()
+                                val nx = (paperW_px * el.xPercent) + dragAmount.x
+                                val ny = (paperH_px * el.yPercent) + dragAmount.y
+                                elements[index] = el.copy(xPercent = nx / paperW_px, yPercent = ny / paperH_px)
+                            }
+                        }, contentAlignment = Alignment.Center) { Icon(Icons.Default.DragIndicator, null, tint = Color.Gray, modifier = Modifier.size(12.dp)) }
+
+                        // RESIZE HANDLES
+                        val handleSize = 6.dp
+                        val handleColor = Color.Blue
+                        @Composable fun Handle(align: Alignment, onDrag: (Float, Float) -> Unit) {
+                            Box(modifier = Modifier.align(align).size(handleSize).background(handleColor, CircleShape).pointerInput(Unit) { detectDragGestures { change, drag -> change.consume(); onDrag(drag.x, drag.y) } })
+                        }
+
+                        fun resize(dx: Float, dy: Float, left: Boolean = false, top: Boolean = false) {
+                            var cx = paperW_px * el.xPercent
+                            var cy = paperH_px * el.yPercent
+                            var cw = paperW_px * el.widthPercent
+                            var ch = paperH_px * el.heightPercent
+                            if (left) { cx += dx; cw -= dx } else cw += dx
+                            if (top) { cy += dy; ch -= dy } else ch += dy
+                            if(cw < 10f) cw = 10f; if(ch < 10f) ch = 10f
+                            elements[index] = el.copy(xPercent = cx / paperW_px, yPercent = cy / paperH_px, widthPercent = cw / paperW_px, heightPercent = ch / paperH_px)
+                        }
+
+                        Handle(Alignment.BottomEnd) { x, y -> resize(x, y) }
+                        Handle(Alignment.BottomStart) { x, y -> resize(x, y, left = true) }
+                        Handle(Alignment.TopEnd) { x, y -> resize(x, y, top = true) }
+                        Handle(Alignment.TopStart) { x, y -> resize(x, y, left = true, top = true) }
+                    }
+                }
+            }
+        }
+
+        // --- LAYER 4: TEXT BOXES ---
         textAnnotations.forEachIndexed { index, txt ->
-            // !!! KEY CHANGE: Use key() to preserve state during list mutations !!!
             key(txt.id) {
                 val isSelected = txt.id == selectedAnnotationId
                 var showContextMenu by remember { mutableStateOf(false) }
@@ -279,31 +364,20 @@ fun EditablePageContainer(
                 val wPx = paperW_px * txt.widthPercent
                 val hPx = paperH_px * txt.heightPercent
 
-                // We capture the absolute screen position of this annotation to help Global Drag
                 var absolutePosition by remember { mutableStateOf(Offset.Zero) }
 
                 Box(
                     modifier = Modifier
                         .offset { IntOffset(xPx.roundToInt(), yPx.roundToInt()) }
                         .size(with(density) { wPx.toDp() }, with(density) { hPx.toDp() })
-                        .onGloballyPositioned { layoutCoordinates ->
-                            absolutePosition = layoutCoordinates.positionInWindow()
-                        }
-                        // *** VITAL CHANGE HERE: Set Alpha instead of removing from list ***
+                        .onGloballyPositioned { layoutCoordinates -> absolutePosition = layoutCoordinates.positionInWindow() }
                         .alpha(if (hiddenAnnotationId == txt.id) 0f else 1f)
                         .drawBehind {
                             if (isSelected) {
-                                val stroke = Stroke(
-                                    width = 1.dp.toPx(),
-                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f), 0f)
-                                )
-                                drawRect(
-                                    color = Color.LightGray,
-                                    style = stroke
-                                )
+                                val stroke = Stroke(width = 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f), 0f))
+                                drawRect(color = Color.LightGray, style = stroke)
                             }
                         }
-                        // Right Click Logic applied to container
                         .pointerInput(Unit) {
                             awaitPointerEventScope {
                                 while (true) {
@@ -316,319 +390,55 @@ fun EditablePageContainer(
                                 }
                             }
                         }
-                        .pointerInput(Unit) {
-                            detectTapGestures(
-                                onTap = { onAnnotationSelected(txt.id) }
-                            )
-                        }
+                        .pointerInput(Unit) { detectTapGestures(onTap = { onAnnotationSelected(txt.id) }) }
                 ) {
-                    // The Text Field
                     BasicTextField(
                         value = txt.text,
                         enabled = isSelected,
                         onValueChange = { str -> textAnnotations[index] = txt.copy(text = str) },
-                        textStyle = TextStyle(
-                            color = txt.color,
-                            fontSize = (txt.fontSize * zoomLevel).sp,
-                            fontWeight = if (txt.isBold) FontWeight.Bold else FontWeight.Normal,
-                            fontStyle = if (txt.isItalic) FontStyle.Italic else FontStyle.Normal,
-                            textDecoration = if (txt.isUnderline) TextDecoration.Underline else TextDecoration.None,
-                            textAlign = txt.textAlign,
-                            fontFamily = getFontFamily(txt.fontFamily)
-                        ),
+                        textStyle = TextStyle(color = txt.color, fontSize = (txt.fontSize * zoomLevel).sp, fontWeight = if (txt.isBold) FontWeight.Bold else FontWeight.Normal, fontStyle = if (txt.isItalic) FontStyle.Italic else FontStyle.Normal, textDecoration = if (txt.isUnderline) TextDecoration.Underline else TextDecoration.None, textAlign = txt.textAlign, fontFamily = getFontFamily(txt.fontFamily)),
                         modifier = Modifier.fillMaxSize().padding(4.dp)
                     )
 
-                    // Custom Single Menu
-                    DropdownMenu(
-                        expanded = showContextMenu,
-                        onDismissRequest = { showContextMenu = false }
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text("Delete", color = Color.Red) },
-                            onClick = {
-                                onDeleteAnnotation(txt.id)
-                                showContextMenu = false
-                            }
-                        )
+                    DropdownMenu(expanded = showContextMenu, onDismissRequest = { showContextMenu = false }) {
+                        DropdownMenuItem(text = { Text("Delete", color = Color.Red) }, onClick = { onDeleteAnnotation(txt.id); showContextMenu = false })
                     }
 
-                    // CONTROLS: Only visible when selected
                     if (isSelected) {
-                        // 1. DRAG ICON (Bottom Center)
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .offset(y = 20.dp)
-                                .size(18.dp)
-                                .background(Color(0xFFF0F0F0), CircleShape)
-                                .clip(CircleShape)
-                                .border(0.5.dp, Color.LightGray, CircleShape)
-                                .pointerInput(Unit) {
-                                    detectDragGestures(
-                                        onDragStart = {
-                                            // Tell parent we started dragging, passing current screen coords
-                                            onGlobalDragStart(txt, absolutePosition)
-                                        },
-                                        onDrag = { change, dragAmount ->
-                                            change.consume()
-                                            // Tell parent to move the ghost
-                                            onGlobalDrag(dragAmount)
-                                        },
-                                        onDragEnd = {
-                                            // Tell parent we let go
-                                            onGlobalDragEnd()
-                                        }
-                                    )
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                Icons.Default.DragIndicator,
-                                contentDescription = "Drag",
-                                tint = Color.Gray,
-                                modifier = Modifier.size(12.dp)
-                            )
-                        }
+                        Box(modifier = Modifier.align(Alignment.BottomCenter).offset(y = 20.dp).size(18.dp).background(Color(0xFFF0F0F0), CircleShape).clip(CircleShape).border(0.5.dp, Color.LightGray, CircleShape).pointerInput(Unit) { detectDragGestures(onDragStart = { onGlobalDragStart(txt, absolutePosition) }, onDrag = { change, dragAmount -> change.consume(); onGlobalDrag(dragAmount) }, onDragEnd = { onGlobalDragEnd() }) }, contentAlignment = Alignment.Center) { Icon(Icons.Default.DragIndicator, contentDescription = "Drag", tint = Color.Gray, modifier = Modifier.size(12.dp)) }
 
-                        // 2. RESIZE HANDLES (Small dots on border lines)
                         val handleSize = 6.dp
                         val handleColor = Color.LightGray
+                        @Composable fun ResizeHandle(alignment: Alignment, onDrag: (Float, Float) -> Unit) { Box(modifier = Modifier.align(alignment).size(handleSize).background(handleColor, CircleShape).pointerInput(Unit) { detectDragGestures { change, dragAmount -> change.consume(); onDrag(dragAmount.x, dragAmount.y) } }) }
 
-                        @Composable
-                        fun ResizeHandle(alignment: Alignment, onDrag: (Float, Float) -> Unit) {
-                            Box(
-                                modifier = Modifier
-                                    .align(alignment)
-                                    .size(handleSize)
-                                    .background(handleColor, CircleShape)
-                                    .pointerInput(Unit) {
-                                        detectDragGestures { change, dragAmount ->
-                                            change.consume()
-                                            onDrag(dragAmount.x, dragAmount.y)
-                                        }
-                                    }
-                            )
-                        }
-
-                        fun updateResize(
-                            dx: Float,
-                            dy: Float,
-                            isLeft: Boolean,
-                            isTop: Boolean,
-                            lockX: Boolean = false,
-                            lockY: Boolean = false
-                        ) {
+                        fun updateResize(dx: Float, dy: Float, isLeft: Boolean, isTop: Boolean, lockX: Boolean = false, lockY: Boolean = false) {
                             val currTxt = textAnnotations[index]
                             val cx = currentPaperW * currTxt.xPercent
                             val cy = currentPaperH * currTxt.yPercent
                             val cw = currentPaperW * currTxt.widthPercent
                             val ch = currentPaperH * currTxt.heightPercent
+                            var nx = cx; var ny = cy; var nw = cw; var nh = ch
 
-                            var nx = cx
-                            var ny = cy
-                            var nw = cw
-                            var nh = ch
+                            if (!lockX) { if (isLeft) { nx += dx; nw -= dx } else { nw += dx } }
+                            if (!lockY) { if (isTop) { ny += dy; nh -= dy } else { nh += dy } }
 
-                            if (!lockX) {
-                                if (isLeft) {
-                                    nx += dx; nw -= dx
-                                } else {
-                                    nw += dx
-                                }
-                            }
-                            if (!lockY) {
-                                if (isTop) {
-                                    ny += dy; nh -= dy
-                                } else {
-                                    nh += dy
-                                }
-                            }
+                            if (nw < 20f) { if (isLeft && !lockX) nx = cx; nw = 20f }
+                            if (nh < 20f) { if (isTop && !lockY) ny = cy; nh = 20f }
 
-                            if (nw < 20f) {
-                                if (isLeft && !lockX) nx = cx; nw = 20f
-                            }
-                            if (nh < 20f) {
-                                if (isTop && !lockY) ny = cy; nh = 20f
-                            }
-
-                            textAnnotations[index] = currTxt.copy(
-                                xPercent = nx / currentPaperW,
-                                yPercent = ny / currentPaperH,
-                                widthPercent = nw / currentPaperW,
-                                heightPercent = nh / currentPaperH
-                            )
+                            textAnnotations[index] = currTxt.copy(xPercent = nx / currentPaperW, yPercent = ny / currentPaperH, widthPercent = nw / currentPaperW, heightPercent = nh / currentPaperH)
                         }
 
-                        ResizeHandle(Alignment.TopCenter) { x, y ->
-                            updateResize(
-                                x,
-                                y,
-                                false,
-                                true,
-                                lockX = true
-                            )
-                        }
-                        ResizeHandle(Alignment.BottomCenter) { x, y ->
-                            updateResize(
-                                x,
-                                y,
-                                false,
-                                false,
-                                lockX = true
-                            )
-                        }
-                        ResizeHandle(Alignment.CenterStart) { x, y ->
-                            updateResize(
-                                x,
-                                y,
-                                true,
-                                false,
-                                lockY = true
-                            )
-                        }
-                        ResizeHandle(Alignment.CenterEnd) { x, y ->
-                            updateResize(
-                                x,
-                                y,
-                                false,
-                                false,
-                                lockY = true
-                            )
-                        }
-
+                        ResizeHandle(Alignment.TopCenter) { x, y -> updateResize(x, y, false, true, lockX = true) }
+                        ResizeHandle(Alignment.BottomCenter) { x, y -> updateResize(x, y, false, false, lockX = true) }
+                        ResizeHandle(Alignment.CenterStart) { x, y -> updateResize(x, y, true, false, lockY = true) }
+                        ResizeHandle(Alignment.CenterEnd) { x, y -> updateResize(x, y, false, false, lockY = true) }
                         ResizeHandle(Alignment.TopStart) { x, y -> updateResize(x, y, true, true) }
                         ResizeHandle(Alignment.TopEnd) { x, y -> updateResize(x, y, false, true) }
-                        ResizeHandle(Alignment.BottomStart) { x, y ->
-                            updateResize(
-                                x,
-                                y,
-                                true,
-                                false
-                            )
-                        }
-                        ResizeHandle(Alignment.BottomEnd) { x, y ->
-                            updateResize(
-                                x,
-                                y,
-                                false,
-                                false
-                            )
-                        }
+                        ResizeHandle(Alignment.BottomStart) { x, y -> updateResize(x, y, true, false) }
+                        ResizeHandle(Alignment.BottomEnd) { x, y -> updateResize(x, y, false, false) }
                     }
                 }
             }
         }
-    }
-}
-
-// --- RIBBON COMPONENTS ---
-
-@Composable
-fun RibbonTab(text: String, isActive: Boolean, onClick: () -> Unit) {
-    Column(
-        modifier = Modifier.clickable(onClick = onClick).padding(horizontal = 24.dp, vertical = 12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Text(text, fontSize = 13.sp, fontWeight = if(isActive) FontWeight.Bold else FontWeight.Normal, color = if(isActive) Color(0xFF2B579A) else Color.Black)
-        if (isActive) Box(Modifier.height(3.dp).width(40.dp).background(Color(0xFF2B579A), RoundedCornerShape(topStart=2.dp, topEnd=2.dp)))
-    }
-}
-
-@Composable
-fun RibbonGroup(label: String, content: @Composable RowScope.() -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxHeight().padding(horizontal = 6.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, content = content)
-        Text(label, fontSize = 10.sp, color = Color.Gray, modifier = Modifier.padding(bottom = 2.dp))
-    }
-}
-
-@Composable
-fun RibbonLargeButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, color: Color = Color(0xFF2B579A), onClick: () -> Unit) {
-    Column(modifier = Modifier.clip(RoundedCornerShape(4.dp)).clickable(onClick = onClick).padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(icon, null, tint = color, modifier = Modifier.size(24.dp))
-        Spacer(Modifier.height(4.dp))
-        Text(label, fontSize = 11.sp, textAlign = TextAlign.Center, lineHeight = 11.sp, color = color)
-    }
-}
-
-@Composable
-fun RibboniconButton(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, isActive: Boolean, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .background(if(isActive) Color(0xFFE1EDFD) else Color.Transparent, RoundedCornerShape(4.dp))
-            .border(1.dp, if(isActive) Color(0xFFA4C6F8) else Color.Transparent, RoundedCornerShape(4.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 6.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(icon, null, modifier = Modifier.size(16.dp), tint = if(isActive) Color(0xFF2B579A) else Color.Black)
-        if(label.isNotEmpty()) {
-            Spacer(Modifier.width(4.dp))
-            Text(label, fontSize = 11.sp, color = if(isActive) Color(0xFF2B579A) else Color.Black)
-        }
-    }
-}
-
-@Composable
-fun RibbonTextButton(text: String, isActive: Boolean, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .background(if(isActive) Color(0xFFE1EDFD) else Color.Transparent, RoundedCornerShape(4.dp))
-            .border(1.dp, if(isActive) Color(0xFFA4C6F8) else Color.Transparent, RoundedCornerShape(4.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(text, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if(isActive) Color(0xFF2B579A) else Color.Black)
-    }
-}
-
-@Composable
-fun RibbonDropdown(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, options: List<String>, onSelect: (Int) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.border(1.dp, Color.LightGray, RoundedCornerShape(4.dp)).clip(RoundedCornerShape(4.dp)).clickable { expanded = true }.padding(6.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, null, modifier = Modifier.size(16.dp), tint = Color(0xFF2B579A))
-            Spacer(Modifier.width(4.dp))
-            Text(label, fontSize = 11.sp)
-            Spacer(Modifier.width(4.dp))
-            Icon(Icons.Default.ArrowDropDown, null, modifier = Modifier.size(14.dp))
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            options.forEachIndexed { idx, opt -> DropdownMenuItem(text = { Text(opt) }, onClick = { onSelect(idx); expanded = false }) }
-        }
-    }
-}
-
-@Composable
-fun RibbonNumberInput(label: String, value: Float, enabled: Boolean = true, onChange: (Float) -> Unit) {
-    var textValue by remember(value) { mutableStateOf(if(value == 0f) "" else value.toString()) }
-
-    LaunchedEffect(value) {
-        if(textValue.toFloatOrNull() != value) {
-            textValue = if(value == 0f) "" else value.toString()
-        }
-    }
-
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(label, fontSize = 11.sp, color = if(enabled) Color.DarkGray else Color.LightGray, modifier = Modifier.width(30.dp))
-        BasicTextField(
-            value = textValue,
-            enabled = enabled,
-            onValueChange = { str ->
-                textValue = str
-                val num = str.toFloatOrNull()
-                if (num != null) {
-                    onChange(num)
-                }
-            },
-            textStyle = TextStyle(fontSize = 11.sp, textAlign = TextAlign.Center),
-            modifier = Modifier
-                .width(40.dp)
-                .background(if(enabled) Color.White else Color(0xFFEEEEEE), RoundedCornerShape(2.dp))
-                .border(1.dp, Color.LightGray, RoundedCornerShape(2.dp))
-                .padding(3.dp)
-        )
     }
 }
