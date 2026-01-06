@@ -105,7 +105,7 @@ fun EditablePageContainer(
     multiSelectedAnnotationIds: MutableList<String> = mutableListOf(),
     multiSelectedElementIds: MutableList<String> = mutableListOf(),
 
-    canPaste: Boolean = false, // Not used but kept for signature
+    canPaste: Boolean = false,
     onAnnotationSelected: (String?) -> Unit,
     onElementSelected: (String?) -> Unit,
     onPageSelected: () -> Unit,
@@ -230,7 +230,6 @@ fun EditablePageContainer(
                 )
             }
     ) {
-        // ... (Canvas Layers - No Changes) ...
         Canvas(modifier = Modifier.fillMaxSize()) {
             if (config.showOuterBorder) {
                 drawRect(Color(config.outerColor.red, config.outerColor.green, config.outerColor.blue),
@@ -297,7 +296,7 @@ fun EditablePageContainer(
             }
         }
 
-        // --- LAYER 2: GRAPH ---
+        // --- LAYER 2: BACKGROUND GRAPH (Legacy Fixed Graph) ---
         val fullPageW_imgPx = widthMm * (38.0/10.0)
         val graphScaleFactor = paperW_px / fullPageW_imgPx
         val graphDim = remember(item.data, hScale, vScale) {
@@ -339,7 +338,6 @@ fun EditablePageContainer(
         }
 
         // --- GROUP SELECTION BOX LOGIC ---
-        // Calculate Bounding Box of all selected items
         if (isSelectToolActive && (multiSelectedAnnotationIds.isNotEmpty() || multiSelectedElementIds.isNotEmpty())) {
             var minX = Float.MAX_VALUE
             var minY = Float.MAX_VALUE
@@ -379,7 +377,6 @@ fun EditablePageContainer(
                 var showGroupMenu by remember { mutableStateOf(false) }
                 var absolutePosition by remember { mutableStateOf(Offset.Zero) }
 
-                // Draw the Group Dotted Box
                 Box(
                     modifier = Modifier
                         .offset { IntOffset(minX.roundToInt(), minY.roundToInt()) }
@@ -392,7 +389,6 @@ fun EditablePageContainer(
                             )
                         }
                         .onGloballyPositioned { absolutePosition = it.positionInWindow() }
-                        // DETECT RIGHT CLICK ON THE BOX ITSELF
                         .pointerInput(Unit) {
                             awaitPointerEventScope {
                                 while (true) {
@@ -405,7 +401,6 @@ fun EditablePageContainer(
                             }
                         }
                 ) {
-                    // Unified Context Menu for Group
                     DropdownMenu(expanded = showGroupMenu, onDismissRequest = { showGroupMenu = false }) {
                         DropdownMenuItem(text = { Text("Copy Group") }, onClick = { onContextMenuCopy(); showGroupMenu = false })
                         if(hasClipboardContent) {
@@ -414,11 +409,10 @@ fun EditablePageContainer(
                         DropdownMenuItem(text = { Text("Delete Group", color = Color.Red) }, onClick = { onContextMenuDelete(); showGroupMenu = false })
                     }
 
-                    // GROUP DRAG ICON (Bottom Center, just below line)
                     Box(
                         modifier = Modifier
-                            .align(Alignment.BottomCenter) // Center of bottom line
-                            .offset(y = 20.dp)             // Pushed down below line
+                            .align(Alignment.BottomCenter)
+                            .offset(y = 20.dp)
                             .size(24.dp)
                             .background(Color.White, CircleShape)
                             .border(1.dp, Color.Blue, CircleShape)
@@ -440,15 +434,13 @@ fun EditablePageContainer(
             }
         }
 
-        // --- HELPER: Only show individual drag handles if NO GROUP SELECTION ---
         fun shouldShowDragHandle(itemId: String, isSelected: Boolean): Boolean {
             if (!isSelected) return false
-            // If Select Tool is active and we have multiple items, HIDE individual handles (use Group Box)
             if (isSelectToolActive && (multiSelectedAnnotationIds.size + multiSelectedElementIds.size > 1)) return false
             return true
         }
 
-        // --- LAYER 3: ELEMENTS (SHAPES) ---
+        // --- LAYER 3: ELEMENTS (SHAPES & FLOATING GRAPHS) ---
         elements.forEachIndexed { index, el ->
             key(el.id) {
                 val isSelected = el.id == selectedElementId || (isSelectToolActive && multiSelectedElementIds.contains(el.id))
@@ -493,9 +485,38 @@ fun EditablePageContainer(
                             }
                         }) }
                 ) {
-                    ElementRenderer(el)
+                    if (el.type == ElementType.GRAPH_IMAGE) {
+                        // Render Floating Graph
+                        val awtPreColor = java.awt.Color(el.graphPreColor.red, el.graphPreColor.green, el.graphPreColor.blue)
+                        val awtPostColor = java.awt.Color(el.graphPostColor.red, el.graphPostColor.green, el.graphPostColor.blue)
 
-                    // Individual Context Menu (Only if not in Multi-Select Mode to avoid conflict, or handle gracefully)
+                        GraphPageCanvas(
+                            modifier = Modifier.fillMaxSize(),
+                            data = el.graphData,
+                            type = el.graphType,
+                            paperSize = paperSize, // Uses parent paper size context
+                            isLandscape = isLandscape,
+                            hScale = el.graphHScale,
+                            vScale = el.graphVScale,
+                            config = ReportConfig(), // No border for inner element
+                            showPre = el.graphShowPre,
+                            showPost = el.graphShowPost,
+                            preColor = awtPreColor,
+                            postColor = awtPostColor,
+                            preWidth = el.graphPreWidth,
+                            postWidth = el.graphPostWidth,
+                            preDotted = el.graphPreDotted,
+                            postDotted = el.graphPostDotted,
+                            preShowPoints = true,
+                            postShowPoints = true,
+                            showGrid = el.graphShowGrid,
+                            isTransparentOverlay = true
+                        )
+                    } else {
+                        // Render Vector Shape
+                        ElementRenderer(el)
+                    }
+
                     DropdownMenu(expanded = showContextMenu, onDismissRequest = { showContextMenu = false }) {
                         if (isSelectToolActive || selectedElementId != null) {
                             DropdownMenuItem(text = { Text("Copy") }, onClick = { onContextMenuCopy(); showContextMenu = false })

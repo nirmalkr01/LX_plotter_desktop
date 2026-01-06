@@ -32,7 +32,9 @@ fun ImagePanel(
     preWidth: Float, postWidth: Float,
     preShowPoints: Boolean, postShowPoints: Boolean,
     showGrid: Boolean,
-    onAddToReport: (ReportPageItem) -> Unit,
+    // NEW PARAMS
+    selectedPartitionSlot: PartitionSlot? = null,
+    onAddToReport: (ReportElement) -> Unit, // Changed to ReportElement
     onStatusChange: (String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -70,14 +72,51 @@ fun ImagePanel(
             Row(Modifier.fillMaxWidth().padding(4.dp), horizontalArrangement = Arrangement.End) {
                 Button(onClick = {
                     if (activeGraphId != -100.0) {
+                        // Create a SNAPSHOT of current graph state
                         val data = if (activeGraphId == -1.0) getCurrentViewData(riverData, "L-Section", 0.0, startCh, endCh) else getCurrentViewData(riverData, "X-Section", activeGraphId, 0.0, 0.0)
-                        onAddToReport(ReportPageItem(graphId = activeGraphId, type = selectedGraphType, data = data))
-                        onStatusChange("Added to File View")
+                        val h = if(selectedGraphType=="L-Section") lHScale else xHScale
+                        val v = if(selectedGraphType=="L-Section") lVScale else xVScale
+
+                        // STRICT CHECK: Only allow if a Partition Slot is selected
+                        if (selectedPartitionSlot != null) {
+                            val xP = selectedPartitionSlot.xPercent
+                            val yP = selectedPartitionSlot.yPercent
+                            val wP = selectedPartitionSlot.wPercent
+                            val hP = selectedPartitionSlot.hPercent
+
+                            val newElement = ReportElement(
+                                type = ElementType.GRAPH_IMAGE,
+                                xPercent = xP,
+                                yPercent = yP,
+                                widthPercent = wP,
+                                heightPercent = hP,
+                                graphData = data,
+                                graphType = selectedGraphType,
+                                graphHScale = h,
+                                graphVScale = v,
+                                graphShowPre = showPre,
+                                graphShowPost = showPost,
+                                graphPreColor = Color(preColor.red, preColor.green, preColor.blue),
+                                graphPostColor = Color(postColor.red, postColor.green, postColor.blue),
+                                graphPreDotted = preDotted,
+                                graphPostDotted = postDotted,
+                                graphPreWidth = preWidth,
+                                graphPostWidth = postWidth,
+                                graphShowGrid = showGrid
+                            )
+
+                            onAddToReport(newElement)
+                        } else {
+                            onStatusChange("Enable Grid Mode & Select a Slot First!")
+                        }
                     }
-                }, modifier = Modifier.height(30.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)) {
+                },
+                    // Disable button if no slot is selected
+                    enabled = selectedPartitionSlot != null,
+                    modifier = Modifier.height(30.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)) {
                     Icon(Icons.Default.ArrowForward, null, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("Add to Report >>", fontSize = 11.sp)
+                    Text(if(selectedPartitionSlot != null) "Add to Slot >>" else "Select Slot First", fontSize = 11.sp)
                 }
             }
             Divider()

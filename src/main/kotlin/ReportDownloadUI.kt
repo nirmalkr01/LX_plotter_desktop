@@ -20,18 +20,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import java.io.File
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
@@ -84,6 +83,15 @@ fun ReportDownloadScreen(
     val reportItems = remember { mutableStateListOf<ReportPageItem>() }
     var statusMsg by remember { mutableStateOf("") }
 
+    // --- STATE HOISTING ---
+    val pageElementData = remember { mutableStateMapOf<String, MutableList<ReportElement>>() }
+    var activeFilePanelPageIndex by remember { mutableStateOf(0) }
+
+    // NEW: Track the user-selected empty slot
+    var selectedPartition by remember { mutableStateOf<PartitionSlot?>(null) }
+    // NEW: Track Partition Mode State (Hoist from FilePanel to here)
+    var isPartitionModeEnabled by remember { mutableStateOf(false) }
+
     Column(modifier = Modifier.fillMaxSize().background(Color(0xFFF0F0F0))) {
         // Top Bar
         Surface(shadowElevation = 2.dp, color = MaterialTheme.colorScheme.surface) {
@@ -103,7 +111,6 @@ fun ReportDownloadScreen(
                 Column(modifier = Modifier.padding(8.dp)) {
                     Text("1. Select Graph", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
                     HorizontalDivider(Modifier.padding(vertical = 8.dp))
-
                     Row(modifier = Modifier.fillMaxWidth().height(32.dp).border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(4.dp))) {
                         Box(modifier = Modifier.weight(1f).fillMaxHeight().background(if(selectedGraphType == "X-Section") MaterialTheme.colorScheme.primary else Color.White).clickable { selectedGraphType = "X-Section"; activeGraphId = if(availableGraphs.isNotEmpty()) availableGraphs.first() else -100.0 }, contentAlignment = Alignment.Center) {
                             Text("X-Sec", color = if(selectedGraphType == "X-Section") Color.White else MaterialTheme.colorScheme.primary, fontSize = 11.sp)
@@ -131,7 +138,30 @@ fun ReportDownloadScreen(
                 ImagePanel(
                     riverData, activeGraphId, startCh, endCh, selectedGraphType, lHScale, lVScale, xHScale, xVScale,
                     showPre, showPost, preColor, postColor, preDotted, postDotted, preWidth, postWidth, preShowPoints, postShowPoints, showGrid,
-                    onAddToReport = { reportItems.add(it) }, onStatusChange = { statusMsg = it }
+                    // PASS THE SLOT DOWN
+                    selectedPartitionSlot = selectedPartition,
+                    onAddToReport = { newElement ->
+                        // STRICT CHECK: Ensure partition mode is active and slot selected (handled in ImagePanel too, but safe here)
+                        if (isPartitionModeEnabled && selectedPartition != null) {
+                            if (reportItems.isNotEmpty() && activeFilePanelPageIndex < reportItems.size) {
+                                val activePageId = reportItems[activeFilePanelPageIndex].id
+                                if (!pageElementData.containsKey(activePageId)) {
+                                    pageElementData[activePageId] = mutableStateListOf()
+                                }
+                                pageElementData[activePageId]?.add(newElement)
+
+                                // Clear selection after adding
+                                selectedPartition = null
+
+                                statusMsg = "Added Graph to Page ${activeFilePanelPageIndex + 1}"
+                            } else {
+                                statusMsg = "No active page! Create a page in File View first."
+                            }
+                        } else {
+                            statusMsg = "Enable Grid Mode & Select a Slot First!"
+                        }
+                    },
+                    onStatusChange = { statusMsg = it }
                 )
             }
             Spacer(Modifier.width(8.dp))
@@ -141,7 +171,19 @@ fun ReportDownloadScreen(
                 FilePanel(
                     reportItems, lHScale, lVScale, xHScale, xVScale,
                     showPre, showPost, preColor, postColor, preDotted, postDotted, preWidth, postWidth, preShowPoints, postShowPoints, showGrid,
-                    onStatusChange = { statusMsg = it }
+                    onStatusChange = { statusMsg = it },
+                    externalPageElementData = pageElementData,
+                    onActivePageChanged = { activeFilePanelPageIndex = it },
+                    // NEW: Handle Partition Selection
+                    selectedPartitionSlot = selectedPartition,
+                    onPartitionSelected = { selectedPartition = it },
+                    activeGraphType = selectedGraphType,
+                    // NEW: Pass state variables
+                    isPartitionModeEnabled = isPartitionModeEnabled,
+                    onPartitionModeToggle = {
+                        isPartitionModeEnabled = it
+                        if(!it) selectedPartition = null // Clear selection when disabled
+                    }
                 )
             }
         }
@@ -159,7 +201,6 @@ fun calculateGraphDimensions(data: List<RiverPoint>, type: String, hScale: Doubl
     val yVals = data.map{it.preMonsoon} + data.map{it.postMonsoon}
     val minY = if(yVals.isNotEmpty()) floor(yVals.minOrNull()!!) - 1.0 else 0.0
 
-    // Exact Max Value (No Buffer) to cut top portion
     val maxY = if(yVals.isNotEmpty()) yVals.maxOrNull()!! else 10.0
 
     val pxPerMX = (100.0 / max(hScale, 1.0)) * IMG_PX_PER_CM
@@ -167,9 +208,10 @@ fun calculateGraphDimensions(data: List<RiverPoint>, type: String, hScale: Doubl
 
     val paddingLeft = 100.0
     val tableH = 180.0 // 3 * 60
+    val footerH = 20.0 // Extra space for Chainage Label
     val graphH = (maxY - minY) * pxPerMY
     val totalW = paddingLeft + (maxX - minX) * pxPerMX + 20.0
-    val totalH = 50.0 + graphH + tableH
+    val totalH = 50.0 + graphH + tableH + footerH
     return GraphDimensions(totalW, totalH)
 }
 
@@ -242,13 +284,13 @@ fun GraphPageCanvas(
             }
 
             translate(left = startX, top = startY) {
-                val xVals = if(type=="L-Section") data.map{it.chainage} else data.map{it.distance}
+                val sortedData = data.sortedBy{if(type=="L-Section") it.chainage else it.distance}
+                val xVals = if(type=="L-Section") sortedData.map{it.chainage} else sortedData.map{it.distance}
                 val minX = xVals.minOrNull() ?: 0.0
                 val maxX = xVals.maxOrNull() ?: 10.0
-                val yVals = (if(showPre) data.map{it.preMonsoon} else emptyList()) + (if(showPost) data.map{it.postMonsoon} else emptyList())
+                val yVals = (if(showPre) sortedData.map{it.preMonsoon} else emptyList()) + (if(showPost) sortedData.map{it.postMonsoon} else emptyList())
                 val minY = if(yVals.isNotEmpty()) floor(yVals.minOrNull()!!) - 1.0 else 0.0
 
-                // Exact Max Value (No Buffer)
                 val maxY = if(yVals.isNotEmpty()) yVals.maxOrNull()!! else 10.0
 
                 val pxPerMX = (100.0/max(hScale, 1.0)) * IMG_PX_PER_CM
@@ -264,8 +306,9 @@ fun GraphPageCanvas(
                 fun mX(v: Double) = (padLeft + (v-minX)*pxPerMX).toFloat()
                 fun mY(v: Double) = (totAreaH - (v-minY)*pxPerMY).toFloat()
 
+                // Grid
                 if (showGrid) {
-                    data.sortedBy{if(type=="L-Section") it.chainage else it.distance}.forEach { p ->
+                    sortedData.forEach { p ->
                         val x = mX(if(type=="L-Section") p.chainage else p.distance)
                         if (x > padLeft) {
                             drawLine(Color.LightGray, Offset(x, 0f), Offset(x, totalDrawH), strokeWidth = 1f)
@@ -273,20 +316,55 @@ fun GraphPageCanvas(
                     }
                 }
 
+                // Drop Lines & RIVER Text
                 val dropColor = Color.LightGray.copy(alpha=0.6f)
-                data.sortedBy{if(type=="L-Section") it.chainage else it.distance}.forEach { p ->
+                val count = sortedData.size
+
+                sortedData.forEachIndexed { index, p ->
                     val x = mX(if(type=="L-Section") p.chainage else p.distance)
+
+                    // Logic for 2nd and 2nd last points in X-Section
+                    // Ensure index == 1 (2nd from start) gets a Blue line.
+                    val isBank = type == "X-Section" && count > 2 && (index == 1 || index == count - 2)
+
+                    // Make Blue if Bank, else Standard Gray
+                    val lineColor = if (isBank) Color.Blue else dropColor
+
                     if (x >= padLeft) {
-                        if (showPre) drawLine(dropColor, Offset(x, mY(p.preMonsoon)), Offset(x, totAreaH), strokeWidth = 1f)
-                        if (showPost) drawLine(dropColor, Offset(x, mY(p.postMonsoon)), Offset(x, totAreaH), strokeWidth = 1f)
+                        if (showPre) drawLine(lineColor, Offset(x, mY(p.preMonsoon)), Offset(x, totAreaH), strokeWidth = 1f)
+                        if (showPost) drawLine(lineColor, Offset(x, mY(p.postMonsoon)), Offset(x, totAreaH), strokeWidth = 1f)
+
+                        // Draw "RIVER" text vertically for Bank points
+                        if (isBank) {
+                            // Find the highest point (min pixel Y) to start text above
+                            val yVal = if (showPost && showPre) max(p.preMonsoon, p.postMonsoon)
+                            else if (showPost) p.postMonsoon
+                            else p.preMonsoon
+
+                            // Position: Just above the top intersection of Y-Axis (drop line)
+                            // We use the pixel coordinate mY(yVal)
+                            // FIXED: Increased subtraction from 5f to 25f to pull text higher up (away from point)
+                            val textY = mY(yVal) - 25f
+
+                            // UPDATED: Font Size 12.sp
+                            val riverLayout = textMeasurer.measure("RIVER", style = TextStyle(fontSize = 12.sp, color = Color.Black))
+
+                            // Rotate -90 degrees.
+                            // Anchor: TopLeft relative to pivot.
+                            rotate(-90f, pivot = Offset(x, textY)) {
+                                // Adjusted Offset to center properly relative to the line
+                                drawText(riverLayout, topLeft = Offset(x + 2f, textY))
+                            }
+                        }
                     }
                 }
 
+                // Draw Graph Series
                 fun drawSeries(getColor: (RiverPoint) -> Double, awtColor: java.awt.Color, isDotted: Boolean, width: Float, showPoints: Boolean) {
                     val color = Color(awtColor.red, awtColor.green, awtColor.blue)
                     val path = Path()
                     var first = true
-                    data.sortedBy{if(type=="L-Section") it.chainage else it.distance}.forEach{p->
+                    sortedData.forEach{p->
                         val x = mX(if(type=="L-Section") p.chainage else p.distance)
                         val y = mY(getColor(p))
                         if(first){ path.moveTo(x,y); first=false } else path.lineTo(x,y)
@@ -312,7 +390,7 @@ fun GraphPageCanvas(
                 drawLine(Color.Black, Offset(padLeft, totAreaH), Offset(padLeft, totAreaH + 3 * tableRowH), strokeWidth = 2f)
                 drawLine(Color.Black, Offset(xEnd, totAreaH), Offset(xEnd, totAreaH + 3 * tableRowH), strokeWidth = 2f)
 
-                data.sortedBy{if(type=="L-Section") it.chainage else it.distance}
+                sortedData
                     .distinctBy { if(type=="L-Section") it.chainage else it.distance }
                     .forEachIndexed { index, p ->
                         val x = mX(if(type=="L-Section") p.chainage else p.distance)
@@ -329,8 +407,6 @@ fun GraphPageCanvas(
                     }
 
                 // Y-AXIS LINE AND BACKGROUND
-                // CHANGED: Y-Axis Line now starts from mY(maxY) instead of 0f to cut the top portion
-                // Also adjusted the white masking rect to start from mY(maxY)
                 val yAxisTop = mY(maxY)
                 drawRect(Color.White, topLeft = Offset(0f, yAxisTop), size = Size(padLeft, (totAreaH - yAxisTop) + 50f))
                 drawLine(Color.Black, Offset(padLeft, yAxisTop), Offset(padLeft, totAreaH), strokeWidth = 2f)
@@ -379,6 +455,22 @@ fun GraphPageCanvas(
                     val textX = (padLeft - textLayout.size.width) / 2
                     val textY = y + (tableRowH - textLayout.size.height) / 2
                     drawText(textLayout, topLeft = Offset(textX, textY))
+                }
+
+                // --- FOOTER CHAINAGE LABEL ---
+                // "just below the offset bottom boundary... center of bottom boundary"
+                if (type == "X-Section" && sortedData.isNotEmpty()) {
+                    val chainageVal = sortedData.first().chainage
+                    val chLabel = "CH:-${String.format("%.1f", chainageVal)}" // e.g. CH:-100.0
+                    val footerY = totAreaH + 3 * tableRowH + 10f // 10px below table
+
+                    // UPDATED: Font Size 12.sp
+                    val chLayout = textMeasurer.measure(chLabel, style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 12.sp, color = Color.Black))
+
+                    // Center relative to the full table width (0 to xEnd)
+                    val tableCenter = xEnd / 2
+
+                    drawText(chLayout, topLeft = Offset(tableCenter - chLayout.size.width/2, footerY))
                 }
             }
         }

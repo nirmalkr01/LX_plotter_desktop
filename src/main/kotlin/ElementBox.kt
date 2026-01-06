@@ -15,7 +15,8 @@ enum class ElementType {
     SQUARE, CIRCLE, TRIANGLE,
     LINE, CURVE,
     ARROW_RIGHT, ARROW_LEFT, ARROW_UP, ARROW_DOWN,
-    ELBOW_ARROW_RIGHT_DOWN, ELBOW_ARROW_DOWN_RIGHT, ELBOW_ARROW_LEFT_DOWN
+    ELBOW_ARROW_RIGHT_DOWN, ELBOW_ARROW_DOWN_RIGHT, ELBOW_ARROW_LEFT_DOWN,
+    GRAPH_IMAGE // NEW TYPE
 }
 
 data class ReportElement(
@@ -28,7 +29,22 @@ data class ReportElement(
     var strokeColor: Color = Color.Black,
     var fillColor: Color = Color.Transparent,
     var strokeWidth: Float = 2f,
-    var rotation: Float = 0f
+    var rotation: Float = 0f,
+
+    // --- GRAPH SPECIFIC DATA (Snapshot) ---
+    val graphData: List<RiverPoint> = emptyList(),
+    val graphType: String = "X-Section", // "X-Section" or "L-Section"
+    val graphHScale: Double = 100.0,
+    val graphVScale: Double = 100.0,
+    val graphShowPre: Boolean = true,
+    val graphShowPost: Boolean = true,
+    val graphPreColor: Color = Color.Blue,
+    val graphPostColor: Color = Color.Red,
+    val graphPreDotted: Boolean = true,
+    val graphPostDotted: Boolean = false,
+    val graphPreWidth: Float = 2f,
+    val graphPostWidth: Float = 2f,
+    val graphShowGrid: Boolean = true
 )
 
 @Composable
@@ -36,6 +52,10 @@ fun ElementRenderer(
     element: ReportElement,
     modifier: Modifier = Modifier
 ) {
+    // If it's a Graph, we don't render it here. The FilePanel handles it using GraphPageCanvas.
+    // This renderer is for vector shapes.
+    if (element.type == ElementType.GRAPH_IMAGE) return
+
     Canvas(modifier = modifier.fillMaxSize()) {
         val w = size.width
         val h = size.height
@@ -70,7 +90,6 @@ fun ElementRenderer(
                     drawPath(path, element.strokeColor, style = stroke)
                 }
                 ElementType.LINE -> {
-                    // Horizontal line centered vertically
                     drawLine(
                         color = element.strokeColor,
                         start = Offset(0f, h / 2),
@@ -89,9 +108,7 @@ fun ElementRenderer(
                     path.lineTo(w * 0.7f, h / 2 - h * 0.3f)
                     path.lineTo(w * 0.7f, h / 2 + h * 0.3f)
                     path.close()
-                    if (element.fillColor != Color.Transparent) {
-                        drawPath(path, element.fillColor, style = Fill)
-                    }
+                    if (element.fillColor != Color.Transparent) drawPath(path, element.fillColor, style = Fill)
                     drawPath(path, element.strokeColor, style = Fill)
                 }
                 ElementType.ARROW_LEFT -> {
@@ -100,9 +117,7 @@ fun ElementRenderer(
                     path.lineTo(w * 0.3f, h / 2 - h * 0.3f)
                     path.lineTo(w * 0.3f, h / 2 + h * 0.3f)
                     path.close()
-                    if (element.fillColor != Color.Transparent) {
-                        drawPath(path, element.fillColor, style = Fill)
-                    }
+                    if (element.fillColor != Color.Transparent) drawPath(path, element.fillColor, style = Fill)
                     drawPath(path, element.strokeColor, style = Fill)
                 }
                 ElementType.ARROW_UP -> {
@@ -111,9 +126,7 @@ fun ElementRenderer(
                     path.lineTo(w / 2 - w * 0.3f, h * 0.3f)
                     path.lineTo(w / 2 + w * 0.3f, h * 0.3f)
                     path.close()
-                    if (element.fillColor != Color.Transparent) {
-                        drawPath(path, element.fillColor, style = Fill)
-                    }
+                    if (element.fillColor != Color.Transparent) drawPath(path, element.fillColor, style = Fill)
                     drawPath(path, element.strokeColor, style = Fill)
                 }
                 ElementType.ARROW_DOWN -> {
@@ -122,64 +135,49 @@ fun ElementRenderer(
                     path.lineTo(w / 2 - w * 0.3f, h * 0.7f)
                     path.lineTo(w / 2 + w * 0.3f, h * 0.7f)
                     path.close()
-                    if (element.fillColor != Color.Transparent) {
-                        drawPath(path, element.fillColor, style = Fill)
-                    }
+                    if (element.fillColor != Color.Transparent) drawPath(path, element.fillColor, style = Fill)
                     drawPath(path, element.strokeColor, style = Fill)
                 }
                 ElementType.ELBOW_ARROW_RIGHT_DOWN -> {
-                    // Horizontal then Vertical
                     path.moveTo(0f, 0f)
                     path.lineTo(w, 0f)
                     path.lineTo(w, h)
                     drawPath(path, element.strokeColor, style = stroke)
-                    // Head at bottom
                     val headPath = Path()
                     headPath.moveTo(w, h)
                     headPath.lineTo(w - w*0.2f, h - h*0.2f)
                     headPath.lineTo(w + w*0.2f, h - h*0.2f)
                     headPath.close()
-                    // Fill Color Logic
-                    if (element.fillColor != Color.Transparent) {
-                        drawPath(headPath, element.fillColor, style = Fill)
-                    }
+                    if (element.fillColor != Color.Transparent) drawPath(headPath, element.fillColor, style = Fill)
                     drawPath(headPath, element.strokeColor, style = Fill)
                 }
                 ElementType.ELBOW_ARROW_DOWN_RIGHT -> {
-                    // Vertical then Horizontal
                     path.moveTo(0f, 0f)
                     path.lineTo(0f, h)
                     path.lineTo(w, h)
                     drawPath(path, element.strokeColor, style = stroke)
-                    // Head at right
                     val headPath = Path()
                     headPath.moveTo(w, h)
                     headPath.lineTo(w - w*0.2f, h - h*0.2f)
                     headPath.lineTo(w - w*0.2f, h + h*0.2f)
                     headPath.close()
-                    // Fill Color Logic
-                    if (element.fillColor != Color.Transparent) {
-                        drawPath(headPath, element.fillColor, style = Fill)
-                    }
+                    if (element.fillColor != Color.Transparent) drawPath(headPath, element.fillColor, style = Fill)
                     drawPath(headPath, element.strokeColor, style = Fill)
                 }
                 ElementType.ELBOW_ARROW_LEFT_DOWN -> {
-                    // Horizontal (Right to Left) then Vertical
                     path.moveTo(w, 0f)
                     path.lineTo(0f, 0f)
                     path.lineTo(0f, h)
                     drawPath(path, element.strokeColor, style = stroke)
-                    // Head at bottom-left
                     val headPath = Path()
                     headPath.moveTo(0f, h)
                     headPath.lineTo(0f - w*0.2f, h - h*0.2f)
                     headPath.lineTo(0f + w*0.2f, h - h*0.2f)
                     headPath.close()
-                    if (element.fillColor != Color.Transparent) {
-                        drawPath(headPath, element.fillColor, style = Fill)
-                    }
+                    if (element.fillColor != Color.Transparent) drawPath(headPath, element.fillColor, style = Fill)
                     drawPath(headPath, element.strokeColor, style = Fill)
                 }
+                else -> {}
             }
         }
     }
