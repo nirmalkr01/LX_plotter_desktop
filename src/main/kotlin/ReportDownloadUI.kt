@@ -49,7 +49,6 @@ data class ReportConfig(
     val innerThickness: Float = 1f,
     val innerColor: Color = Color.Black,
     val borderGap: Float = 5f,
-    // MODIFICATION: Added legendType to store user selection (Requirement 1)
     var legendType: String = "X-Section"
 )
 
@@ -159,7 +158,9 @@ fun calculateGraphDimensions(data: List<RiverPoint>, type: String, hScale: Doubl
     val maxX = xVals.maxOrNull() ?: 10.0
     val yVals = data.map{it.preMonsoon} + data.map{it.postMonsoon}
     val minY = if(yVals.isNotEmpty()) floor(yVals.minOrNull()!!) - 1.0 else 0.0
-    val maxY = if(yVals.isNotEmpty()) ceil(yVals.maxOrNull()!!) + 1.0 else 10.0
+
+    // Exact Max Value (No Buffer) to cut top portion
+    val maxY = if(yVals.isNotEmpty()) yVals.maxOrNull()!! else 10.0
 
     val pxPerMX = (100.0 / max(hScale, 1.0)) * IMG_PX_PER_CM
     val pxPerMY = (100.0 / max(vScale, 1.0)) * IMG_PX_PER_CM
@@ -167,8 +168,8 @@ fun calculateGraphDimensions(data: List<RiverPoint>, type: String, hScale: Doubl
     val paddingLeft = 100.0
     val tableH = 180.0 // 3 * 60
     val graphH = (maxY - minY) * pxPerMY
-    val totalW = paddingLeft + (maxX - minX) * pxPerMX
-    val totalH = 50.0 + graphH + tableH // 50 top pad
+    val totalW = paddingLeft + (maxX - minX) * pxPerMX + 20.0
+    val totalH = 50.0 + graphH + tableH
     return GraphDimensions(totalW, totalH)
 }
 
@@ -246,7 +247,9 @@ fun GraphPageCanvas(
                 val maxX = xVals.maxOrNull() ?: 10.0
                 val yVals = (if(showPre) data.map{it.preMonsoon} else emptyList()) + (if(showPost) data.map{it.postMonsoon} else emptyList())
                 val minY = if(yVals.isNotEmpty()) floor(yVals.minOrNull()!!) - 1.0 else 0.0
-                val maxY = if(yVals.isNotEmpty()) ceil(yVals.maxOrNull()!!) + 1.0 else 10.0
+
+                // Exact Max Value (No Buffer)
+                val maxY = if(yVals.isNotEmpty()) yVals.maxOrNull()!! else 10.0
 
                 val pxPerMX = (100.0/max(hScale, 1.0)) * IMG_PX_PER_CM
                 val pxPerMY = (100.0/max(vScale, 1.0)) * IMG_PX_PER_CM
@@ -264,15 +267,19 @@ fun GraphPageCanvas(
                 if (showGrid) {
                     data.sortedBy{if(type=="L-Section") it.chainage else it.distance}.forEach { p ->
                         val x = mX(if(type=="L-Section") p.chainage else p.distance)
-                        drawLine(Color.LightGray, Offset(x, 0f), Offset(x, totalDrawH), strokeWidth = 1f)
+                        if (x > padLeft) {
+                            drawLine(Color.LightGray, Offset(x, 0f), Offset(x, totalDrawH), strokeWidth = 1f)
+                        }
                     }
                 }
 
                 val dropColor = Color.LightGray.copy(alpha=0.6f)
                 data.sortedBy{if(type=="L-Section") it.chainage else it.distance}.forEach { p ->
                     val x = mX(if(type=="L-Section") p.chainage else p.distance)
-                    if (showPre) drawLine(dropColor, Offset(x, mY(p.preMonsoon)), Offset(x, totAreaH), strokeWidth = 1f)
-                    if (showPost) drawLine(dropColor, Offset(x, mY(p.postMonsoon)), Offset(x, totAreaH), strokeWidth = 1f)
+                    if (x >= padLeft) {
+                        if (showPre) drawLine(dropColor, Offset(x, mY(p.preMonsoon)), Offset(x, totAreaH), strokeWidth = 1f)
+                        if (showPost) drawLine(dropColor, Offset(x, mY(p.postMonsoon)), Offset(x, totAreaH), strokeWidth = 1f)
+                    }
                 }
 
                 fun drawSeries(getColor: (RiverPoint) -> Double, awtColor: java.awt.Color, isDotted: Boolean, width: Float, showPoints: Boolean) {
@@ -291,51 +298,87 @@ fun GraphPageCanvas(
                 if(showPre) drawSeries({it.preMonsoon}, preColor, preDotted, preWidth, preShowPoints)
                 if(showPost) drawSeries({it.postMonsoon}, postColor, postDotted, postWidth, postShowPoints)
 
-                val xEnd = (padLeft + (maxX - minX) * pxPerMX).toFloat()
+                // --- TABLE & BORDERS ---
+                val xEnd = (padLeft + (maxX - minX) * pxPerMX + 20.0).toFloat()
+
+                // Horizontal Lines
                 drawLine(Color.Black, Offset(0f, totAreaH), Offset(xEnd, totAreaH), strokeWidth = 2f)
                 drawLine(Color.Black, Offset(0f, totAreaH+tableRowH), Offset(xEnd, totAreaH+tableRowH), strokeWidth = 2f)
                 drawLine(Color.Black, Offset(0f, totAreaH+2*tableRowH), Offset(xEnd, totAreaH+2*tableRowH), strokeWidth = 2f)
                 drawLine(Color.Black, Offset(0f, totAreaH+3*tableRowH), Offset(xEnd, totAreaH+3*tableRowH), strokeWidth = 2f)
 
-                data.sortedBy{if(type=="L-Section") it.chainage else it.distance}.forEach { p ->
-                    val x = mX(if(type=="L-Section") p.chainage else p.distance)
-                    val vals = listOf(String.format("%.3f", p.postMonsoon), String.format("%.3f", p.preMonsoon), String.format("%.1f", if(type=="L-Section") p.chainage else p.distance))
-                    val colors = listOf(Color(postColor.red, postColor.green, postColor.blue), Color(preColor.red, preColor.green, preColor.blue), Color.Black)
-                    vals.forEachIndexed { i, txt ->
-                        val cellCenterY = totAreaH + i * tableRowH + tableRowH/2
-                        val layoutResult = textMeasurer.measure(txt, style = TextStyle(fontSize = 10.sp, color = colors[i]))
-                        rotate(-90f, pivot = Offset(x + 4f, cellCenterY)) {
-                            drawText(layoutResult, topLeft = Offset(x + 4f - layoutResult.size.width/2, cellCenterY - layoutResult.size.height/2))
+                // Vertical Lines (CLOSING THE BOX)
+                drawLine(Color.Black, Offset(0f, totAreaH), Offset(0f, totAreaH + 3 * tableRowH), strokeWidth = 2f)
+                drawLine(Color.Black, Offset(padLeft, totAreaH), Offset(padLeft, totAreaH + 3 * tableRowH), strokeWidth = 2f)
+                drawLine(Color.Black, Offset(xEnd, totAreaH), Offset(xEnd, totAreaH + 3 * tableRowH), strokeWidth = 2f)
+
+                data.sortedBy{if(type=="L-Section") it.chainage else it.distance}
+                    .distinctBy { if(type=="L-Section") it.chainage else it.distance }
+                    .forEachIndexed { index, p ->
+                        val x = mX(if(type=="L-Section") p.chainage else p.distance)
+                        val vals = listOf(String.format("%.3f", p.postMonsoon), String.format("%.3f", p.preMonsoon), String.format("%.1f", if(type=="L-Section") p.chainage else p.distance))
+                        val colors = listOf(Color(postColor.red, postColor.green, postColor.blue), Color(preColor.red, preColor.green, preColor.blue), Color.Black)
+                        vals.forEachIndexed { i, txt ->
+                            val cellCenterY = totAreaH + i * tableRowH + tableRowH/2
+                            val layoutResult = textMeasurer.measure(txt, style = TextStyle(fontSize = 10.sp, color = colors[i]))
+                            val visualX = if (index == 0) x + 8f else x
+                            rotate(-90f, pivot = Offset(visualX, cellCenterY)) {
+                                drawText(layoutResult, topLeft = Offset(visualX - layoutResult.size.width/2, cellCenterY - layoutResult.size.height/2))
+                            }
                         }
                     }
-                }
 
-                drawRect(Color.White, topLeft = Offset(0f, 0f), size = Size(padLeft, totalDrawH + 50f))
-                drawLine(Color.Black, Offset(padLeft, 0f), Offset(padLeft, totAreaH), strokeWidth = 2f)
-                for(i in 0..((maxY-minY).toInt())) {
+                // Y-AXIS LINE AND BACKGROUND
+                // CHANGED: Y-Axis Line now starts from mY(maxY) instead of 0f to cut the top portion
+                // Also adjusted the white masking rect to start from mY(maxY)
+                val yAxisTop = mY(maxY)
+                drawRect(Color.White, topLeft = Offset(0f, yAxisTop), size = Size(padLeft, (totAreaH - yAxisTop) + 50f))
+                drawLine(Color.Black, Offset(padLeft, yAxisTop), Offset(padLeft, totAreaH), strokeWidth = 2f)
+
+                // --- Y-AXIS LABELS ---
+                for(i in 1..((maxY-minY).toInt())) {
                     val yVal = minY + i
                     val yPos = mY(yVal)
                     if (yPos >= 0 && yPos <= totAreaH) {
                         drawLine(Color.Black, Offset(padLeft - 5f, yPos), Offset(padLeft, yPos), strokeWidth = 1f)
                         val txt = String.format("%.1f", yVal)
                         val layout = textMeasurer.measure(txt, style = TextStyle(fontSize = 10.sp, color = Color.Black))
-                        drawText(layout, topLeft = Offset(5f, yPos + 2f))
+                        val textX = padLeft - 8f - layout.size.width
+                        val textY = yPos - layout.size.height / 2
+                        drawText(layout, topLeft = Offset(textX, textY))
                     }
                 }
 
+                // --- DATUM ---
                 val datumY = mY(minY)
                 if (datumY > 0 && datumY < totalDrawH) {
-                    drawText(textMeasurer.measure("DATUM=${minY}", style = TextStyle(fontSize=10.sp)), topLeft = Offset(5f, datumY - 15f))
+                    val txt = "DATUM=${minY}"
+                    val layout = textMeasurer.measure(txt, style = TextStyle(fontSize=10.sp))
+                    val textX = padLeft - 8f - layout.size.width
+                    drawText(layout, topLeft = Offset(textX, datumY - 15f))
                 }
 
+                // --- TABLE HEADER LABELS (CENTERED & DYNAMIC) ---
                 drawRect(Color.White, topLeft = Offset(0f, totAreaH), size = Size(padLeft, 3 * tableRowH))
+                drawLine(Color.Black, Offset(0f, totAreaH), Offset(0f, totAreaH + 3 * tableRowH), strokeWidth = 2f)
                 drawLine(Color.Black, Offset(padLeft, totAreaH), Offset(padLeft, totAreaH + 3 * tableRowH), strokeWidth = 2f)
-                val labels = listOf("POST RL", "PRE RL", if(type=="L-Section") "CHAINAGE" else "OFFSET")
+                drawLine(Color.Black, Offset(0f, totAreaH), Offset(padLeft, totAreaH), strokeWidth = 2f)
+
+                val labels = if(type == "L-Section") {
+                    listOf("POST MONSOON RL", "PRE MONSOON RL", "Chainage in mt.")
+                } else {
+                    listOf("POST RL", "PRE RL", "OFFSET")
+                }
+
                 labels.forEachIndexed { i, l ->
                     val y = totAreaH + i * tableRowH
                     drawLine(Color.Black, Offset(0f, y), Offset(padLeft, y), strokeWidth = 2f)
                     drawLine(Color.Black, Offset(0f, y + tableRowH), Offset(padLeft, y + tableRowH), strokeWidth = 2f)
-                    drawText(textMeasurer.measure(l, style = TextStyle(fontSize=12.sp, fontWeight = FontWeight.Bold)), topLeft = Offset(5f, y + tableRowH/2 - 7f))
+
+                    val textLayout = textMeasurer.measure(l, style = TextStyle(fontSize=10.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center))
+                    val textX = (padLeft - textLayout.size.width) / 2
+                    val textY = y + (tableRowH - textLayout.size.height) / 2
+                    drawText(textLayout, topLeft = Offset(textX, textY))
                 }
             }
         }
