@@ -510,7 +510,21 @@ fun EditablePageContainer(
                             preShowPoints = true,
                             postShowPoints = true,
                             showGrid = el.graphShowGrid,
-                            isTransparentOverlay = true
+                            isTransparentOverlay = true,
+
+                            // IMPORTANT: Pass the interactive state stored in ReportElement
+                            riverOffsets = el.riverOffsets,
+                            blueLineOffsets = el.blueLineOffsets,
+                            chLabelOffset = el.chLabelOffset,
+                            deletedRiverIndices = el.deletedRiverIndices,
+                            deletedBlueLineIndices = el.deletedBlueLineIndices,
+                            isChLabelDeleted = el.isChLabelDeleted,
+                            datumSize = el.datumSize,
+                            axisLabelSize = el.axisLabelSize,
+                            tableTextSize = el.tableTextSize,
+                            tableGap = el.tableGap,
+                            riverTextSize = el.riverTextSize,
+                            chainageTextSize = el.chainageTextSize
                         )
                     } else {
                         // Render Vector Shape

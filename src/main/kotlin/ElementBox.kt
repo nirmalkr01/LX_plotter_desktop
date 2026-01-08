@@ -44,7 +44,23 @@ data class ReportElement(
     val graphPostDotted: Boolean = false,
     val graphPreWidth: Float = 2f,
     val graphPostWidth: Float = 2f,
-    val graphShowGrid: Boolean = true
+    val graphShowGrid: Boolean = true,
+
+    // --- NEW INTERACTIVE STATES (Saved from ImagePanel) ---
+    val riverOffsets: Map<Int, Offset> = emptyMap(),
+    val blueLineOffsets: Map<Int, Offset> = emptyMap(),
+    val chLabelOffset: Offset = Offset.Zero,
+    val deletedRiverIndices: List<Int> = emptyList(),
+    val deletedBlueLineIndices: List<Int> = emptyList(),
+    val isChLabelDeleted: Boolean = false,
+
+    // Dynamic Sizes
+    val datumSize: Float = 14f,
+    val axisLabelSize: Float = 14f,
+    val tableTextSize: Float = 14f,
+    val tableGap: Float = 0f,
+    val riverTextSize: Float = 14f,
+    val chainageTextSize: Float = 18f
 )
 
 @Composable

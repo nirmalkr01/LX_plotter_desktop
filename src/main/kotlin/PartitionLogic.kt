@@ -1,5 +1,6 @@
 import androidx.compose.ui.geometry.Rect
 import kotlin.math.max
+import kotlin.math.floor
 
 // Represents a slot where a graph can go
 data class PartitionSlot(
@@ -25,10 +26,10 @@ fun calculatePartitions(
 ): List<PartitionSlot> {
 
     // 1. Calculate Scale Factor based on A3 Landscape Width (42.0 cm)
-    // This aligns with PageLayout.kt scale logic
+    // This aligns with PageLayout.kt scale logic to respect the borders/footer size
     val scale = paperWidthPx / 42.0f
 
-    // The requested 0.1 unit gap
+    // The gap between content and the border lines
     val unitGap = 0.1f * scale
 
     var safeTop: Float
@@ -36,18 +37,15 @@ fun calculatePartitions(
     var safeLeft: Float
     var safeRight: Float
 
-    // --- BOUNDARY CALCULATION ---
+    // --- BOUNDARY CALCULATION (Where can we draw?) ---
     if (layoutType == PageLayoutType.ENGINEERING_STD) {
-        // Engineering (Std) Logic
-        // Top Limit: Bottom of Annexure Box
-        // Annexure box height is 1.0 unit (from PageLayout.kt logic)
+        // Engineering (Std) Layout Logic
+        // Top Limit: Bottom of Annexure Box (Height ~1.0 unit)
         val annexureHeight = 1.0f * scale
         safeTop = marginTopPx + annexureHeight + unitGap
 
         // Bottom Limit: Top of "All dimensions in meters" (D5) box
-        // D5 sits above the 3-row footer.
-        // Footer = 3.0 units. D5 = 1.0 unit.
-        // The D5 top edge is 4.0 units from the bottom margin.
+        // The Footer stack height is roughly 4.0 scale units from the bottom margin
         val footerIntrusion = 4.0f * scale
         safeBottom = (paperHeightPx - marginBottomPx) - footerIntrusion - unitGap
 
@@ -57,7 +55,6 @@ fun calculatePartitions(
 
     } else {
         // BLANK LAYOUT Logic
-        // Determine the innermost active border
         var currentL = marginLeftPx
         var currentT = marginTopPx
         var currentR = paperWidthPx - marginRightPx
@@ -71,7 +68,7 @@ fun calculatePartitions(
             currentR -= th
             currentB -= th
 
-            // 2. Adjust for Inner Border (only if outer is on)
+            // 2. Adjust for Inner Border
             if (config.showInnerBorder) {
                 val gap = config.borderGap * pxPerMm
                 val innerTh = config.innerThickness
@@ -82,7 +79,7 @@ fun calculatePartitions(
             }
         }
 
-        // 3. Apply the 0.1 unit gap from the calculated boundary
+        // 3. Apply the gap
         safeLeft = currentL + unitGap
         safeTop = currentT + unitGap
         safeRight = currentR - unitGap
@@ -95,30 +92,38 @@ fun calculatePartitions(
     // If space is invalid, return empty
     if (safeW <= 20f || safeH <= 20f) return emptyList()
 
-    // --- GRID GENERATION ---
+    // --- GRID GENERATION (FIXED SIZE LOGIC) ---
+    // Instead of aspect ratio, we use fixed physical target sizes (in mm)
+    // to ensure A3 fits more graphs than A4, and A2 fits more than A3.
+
+    // Convert safe dimensions to mm
+    val safeWidthMm = safeW / pxPerMm
+    val safeHeightMm = safeH / pxPerMm
+
     val rows: Int
     val cols: Int
 
     if (graphType == "L-Section") {
-        // L-Sections take full width, split vertically into 3
-        rows = 3
+        // L-Sections take full width, split vertically
+        // Target height ~75mm per strip
         cols = 1
+        val targetHeightMm = 75.0f
+        rows = max(1, floor(safeHeightMm / targetHeightMm).toInt())
     } else {
-        // X-Sections: Dynamic grid based on aspect ratio
-        val aspectRatio = safeW / safeH
-        if (aspectRatio > 1.2) {
-            // Landscape-ish area -> 2 Columns x 3 Rows
-            cols = 2
-            rows = 3
-        } else {
-            // Portrait-ish area -> 1 Column x 4 Rows
-            cols = 1
-            rows = 4
-        }
+        // X-Section logic
+        // Target Box Size: Width ~180mm (A4 width), Height ~75mm
+        // This ensures on A4 (W~180) we get 1 col, on A3 (W~390) we get 2 cols.
+        val targetWidthMm = 180.0f
+        val targetHeightMm = 75.0f
+
+        cols = max(1, floor(safeWidthMm / targetWidthMm).toInt())
+        rows = max(1, floor(safeHeightMm / targetHeightMm).toInt())
     }
 
     // --- SLOT CREATION ---
     val slots = mutableListOf<PartitionSlot>()
+
+    // Divide the actual available space evenly among the calculated rows/cols
     val cellW = safeW / cols
     val cellH = safeH / rows
 
@@ -127,8 +132,7 @@ fun calculatePartitions(
             val pxX = safeLeft + (c * cellW)
             val pxY = safeTop + (r * cellH)
 
-            // No internal padding between slots, just strict math
-            // (The unitGap handles the outer boundary separation)
+            // Calculate final slot rect
             val finalX = pxX
             val finalY = pxY
             val finalW = cellW
