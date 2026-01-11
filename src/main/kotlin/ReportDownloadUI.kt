@@ -41,7 +41,6 @@ import kotlin.math.max
 import kotlin.math.pow
 import kotlin.math.sqrt
 
-// --- SHARED DATA MODELS ---
 data class ReportConfig(
     val marginTop: Float = 10f,
     val marginBottom: Float = 10f,
@@ -59,7 +58,6 @@ data class ReportConfig(
 
 data class GraphDimensions(val width: Double, val height: Double)
 
-// --- MAIN SCREEN ---
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReportDownloadScreen(
@@ -79,16 +77,13 @@ fun ReportDownloadScreen(
     onBack: () -> Unit
 ) {
     var selectedGraphType by remember { mutableStateOf(initialGraphType) }
-
     val availableGraphs = remember(selectedGraphType, riverData) {
         if (selectedGraphType == "L-Section") listOf(-1.0)
         else riverData.map { it.chainage }.distinct().sorted()
     }
-
     var activeGraphId by remember { mutableStateOf(if(availableGraphs.isNotEmpty()) availableGraphs.first() else -100.0) }
     val reportItems = remember { mutableStateListOf<ReportPageItem>() }
     var statusMsg by remember { mutableStateOf("") }
-
     val pageElementData = remember { mutableStateMapOf<String, MutableList<ReportElement>>() }
     var activeFilePanelPageIndex by remember { mutableStateOf(0) }
     var selectedPartition by remember { mutableStateOf<PartitionSlot?>(null) }
@@ -104,34 +99,26 @@ fun ReportDownloadScreen(
                 if(statusMsg.isNotEmpty()) Text(statusMsg, fontSize = 12.sp, color = Color(0xFF006400))
             }
         }
-
         Row(modifier = Modifier.weight(1f).fillMaxWidth().padding(8.dp)) {
             Card(modifier = Modifier.weight(0.15f).fillMaxHeight(), colors = CardDefaults.cardColors(containerColor = Color.White)) {
                 Column(modifier = Modifier.padding(8.dp)) {
                     Text("1. Select Graph", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
                     HorizontalDivider(Modifier.padding(vertical = 8.dp))
                     Row(modifier = Modifier.fillMaxWidth().height(32.dp).border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(4.dp))) {
-                        Box(modifier = Modifier.weight(1f).fillMaxHeight().background(if(selectedGraphType == "X-Section") MaterialTheme.colorScheme.primary else Color.White).clickable { selectedGraphType = "X-Section"; activeGraphId = if(availableGraphs.isNotEmpty()) availableGraphs.first() else -100.0 }, contentAlignment = Alignment.Center) {
-                            Text("X-Sec", color = if(selectedGraphType == "X-Section") Color.White else MaterialTheme.colorScheme.primary, fontSize = 11.sp)
-                        }
+                        Box(modifier = Modifier.weight(1f).fillMaxHeight().background(if(selectedGraphType == "X-Section") MaterialTheme.colorScheme.primary else Color.White).clickable { selectedGraphType = "X-Section"; activeGraphId = if(availableGraphs.isNotEmpty()) availableGraphs.first() else -100.0 }, contentAlignment = Alignment.Center) { Text("X-Sec", color = if(selectedGraphType == "X-Section") Color.White else MaterialTheme.colorScheme.primary, fontSize = 11.sp) }
                         Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(MaterialTheme.colorScheme.primary))
-                        Box(modifier = Modifier.weight(1f).fillMaxHeight().background(if(selectedGraphType == "L-Section") MaterialTheme.colorScheme.primary else Color.White).clickable { selectedGraphType = "L-Section"; activeGraphId = -1.0 }, contentAlignment = Alignment.Center) {
-                            Text("L-Sec", color = if(selectedGraphType == "L-Section") Color.White else MaterialTheme.colorScheme.primary, fontSize = 11.sp)
-                        }
+                        Box(modifier = Modifier.weight(1f).fillMaxHeight().background(if(selectedGraphType == "L-Section") MaterialTheme.colorScheme.primary else Color.White).clickable { selectedGraphType = "L-Section"; activeGraphId = -1.0 }, contentAlignment = Alignment.Center) { Text("L-Sec", color = if(selectedGraphType == "L-Section") Color.White else MaterialTheme.colorScheme.primary, fontSize = 11.sp) }
                     }
                     Spacer(Modifier.height(8.dp))
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         items(availableGraphs) { id ->
                             val label = if(id == -1.0) "L-Section Profile" else "Chainage ${id.toInt()} m"
-                            Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)).background(if (activeGraphId == id) MaterialTheme.colorScheme.primaryContainer else Color.Transparent).clickable { activeGraphId = id }.padding(vertical = 8.dp, horizontal = 4.dp)) {
-                                Text(label, fontSize = 12.sp, fontWeight = if(activeGraphId == id) FontWeight.Bold else FontWeight.Normal)
-                            }
+                            Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)).background(if (activeGraphId == id) MaterialTheme.colorScheme.primaryContainer else Color.Transparent).clickable { activeGraphId = id }.padding(vertical = 8.dp, horizontal = 4.dp)) { Text(label, fontSize = 12.sp, fontWeight = if(activeGraphId == id) FontWeight.Bold else FontWeight.Normal) }
                         }
                     }
                 }
             }
             Spacer(Modifier.width(8.dp))
-
             Box(Modifier.weight(0.35f)) {
                 ImagePanel(
                     riverData, activeGraphId, startCh, endCh, selectedGraphType, lHScale, lVScale, xHScale, xVScale,
@@ -156,7 +143,6 @@ fun ReportDownloadScreen(
                 )
             }
             Spacer(Modifier.width(8.dp))
-
             Box(Modifier.weight(0.5f)) {
                 FilePanel(
                     reportItems, lHScale, lVScale, xHScale, xVScale,
@@ -168,16 +154,14 @@ fun ReportDownloadScreen(
                     onPartitionSelected = { selectedPartition = it },
                     activeGraphType = selectedGraphType,
                     isPartitionModeEnabled = isPartitionModeEnabled,
-                    onPartitionModeToggle = {
-                        isPartitionModeEnabled = it
-                        if(!it) selectedPartition = null
-                    }
+                    onPartitionModeToggle = { isPartitionModeEnabled = it; if(!it) selectedPartition = null }
                 )
             }
         }
     }
 }
 
+// CRITICAL FIX: Ensure dimensions match exactly what is drawn in GraphPageCanvas
 fun calculateGraphDimensions(data: List<RiverPoint>, type: String, hScale: Double, vScale: Double): GraphDimensions {
     if (data.isEmpty()) return GraphDimensions(100.0, 100.0)
     val IMG_PX_PER_CM = 72.0
@@ -187,14 +171,23 @@ fun calculateGraphDimensions(data: List<RiverPoint>, type: String, hScale: Doubl
     val yVals = data.map{it.preMonsoon} + data.map{it.postMonsoon}
     val minY = if(yVals.isNotEmpty()) floor(yVals.minOrNull()!!) - 1.0 else 0.0
     val maxY = if(yVals.isNotEmpty()) yVals.maxOrNull()!! else 10.0
+
     val pxPerMX = (100.0 / max(hScale, 1.0)) * IMG_PX_PER_CM
     val pxPerMY = (100.0 / max(vScale, 1.0)) * IMG_PX_PER_CM
+
     val paddingLeft = 140.0
-    val tableH = 14.0
-    val footerH = 40.0
+    val topPad = 50.0
     val graphH = (maxY - minY) * pxPerMY
-    val totalW = paddingLeft + (maxX - minX) * pxPerMX + 40.0
-    val totalH = 50.0 + graphH + tableH + footerH
+
+    // FIX: Table height in drawing is 3 * 60 = 180. Footer is handled via internalChFooterY logic but generally needs space.
+    // We add a safety buffer to ensure auto-fit doesn't cut off text.
+    val tableRowHeight = 60.0
+    val tableTotalH = 3 * tableRowHeight
+    val footerBuffer = 50.0 // Space for Chainage Label
+
+    val totalW = paddingLeft + (maxX - minX) * pxPerMX + 60.0 // +60 for right padding
+    val totalH = topPad + graphH + tableTotalH + footerBuffer
+
     return GraphDimensions(totalW, totalH)
 }
 
@@ -215,46 +208,32 @@ fun GraphPageCanvas(
     showGrid: Boolean,
     isRawView: Boolean = false,
     isTransparentOverlay: Boolean = false,
-
-    // --- NEW DYNAMIC & INTERACTIVE PARAMS ---
     datumSize: Float = 14f,
     axisLabelSize: Float = 14f,
     tableTextSize: Float = 14f,
     tableGap: Float = 0f,
     riverTextSize: Float = 14f,
     chainageTextSize: Float = 18f,
-
-    // Offsets & Deletion
     riverOffsets: Map<Int, Offset> = emptyMap(),
     blueLineOffsets: Map<Int, Offset> = emptyMap(),
     chLabelOffset: Offset = Offset.Zero,
-
     deletedRiverIndices: List<Int> = emptyList(),
     deletedBlueLineIndices: List<Int> = emptyList(),
     isChLabelDeleted: Boolean = false,
-
     selectedItem: InteractiveItem? = null,
     onSelectItem: (InteractiveItem?) -> Unit = {},
     onDragItem: (InteractiveItem, Offset) -> Unit = { _, _ -> }
 ) {
     val textMeasurer = rememberTextMeasurer()
-
     var currentScaleFit by remember { mutableStateOf(1f) }
     var currentTranslation by remember { mutableStateOf(Offset.Zero) }
-
-    // Captured calc functions for hit testing
     var internalMapX: ((Double) -> Float)? = null
     var internalMapY: ((Double) -> Float)? = null
-    var internalMaxYVal: Double = 0.0
-    var internalTotAreaH: Float = 0f
-    var internalChFooterY: Float = 0f
-    var internalTableCenter: Float = 0f
 
     Canvas(modifier = modifier.pointerInput(data, hScale, vScale, currentScaleFit, currentTranslation, riverOffsets, blueLineOffsets, chLabelOffset, selectedItem) {
         detectDragGestures { change, dragAmount ->
             change.consume()
             if (selectedItem != null) {
-                // Drag the selected item from the Dropdown
                 val scaledDrag = dragAmount / currentScaleFit
                 onDragItem(selectedItem, scaledDrag)
             }
@@ -264,21 +243,21 @@ fun GraphPageCanvas(
 
         val IMG_PX_PER_CM = 72.0
         val mmToPx = IMG_PX_PER_CM / 10.0
-        // ISO Paper Size Logic (Float based)
         val pW_mm = if (isLandscape) paperSize.heightMm else paperSize.widthMm
         val pH_mm = if (isLandscape) paperSize.widthMm else paperSize.heightMm
         val pageW = pW_mm * mmToPx
         val pageH = pH_mm * mmToPx
 
+        // AUTO FIT LOGIC:
         val scaleFit = if(isTransparentOverlay) {
             val dims = calculateGraphDimensions(data, type, hScale, vScale)
+            // Ensure we fit fully inside the box (slot)
             minOf(size.width / dims.width.toFloat(), size.height / dims.height.toFloat())
         } else {
             minOf(size.width / pageW.toFloat(), size.height / pageH.toFloat())
         }
 
         currentScaleFit = scaleFit
-
         if (scaleFit.isNaN() || scaleFit <= 0f) return@Canvas
 
         scale(scaleFit, pivot = Offset.Zero) {
@@ -289,7 +268,6 @@ fun GraphPageCanvas(
                     val mR = (config.marginRight * mmToPx).toFloat()
                     val mT = (config.marginTop * mmToPx).toFloat()
                     val mB = (config.marginBottom * mmToPx).toFloat()
-
                     if(config.showOuterBorder) {
                         drawRect(Color(config.outerColor.red, config.outerColor.green, config.outerColor.blue),
                             topLeft = Offset(mL, mT),
@@ -313,92 +291,64 @@ fun GraphPageCanvas(
             currentTranslation = Offset(startX, startY)
 
             translate(left = startX, top = startY) {
-                val sortedData = data
-                    .sortedBy { if(type=="L-Section") it.chainage else it.distance }
+                val sortedData = data.sortedBy { if(type=="L-Section") it.chainage else it.distance }
                     .distinctBy { if(type=="L-Section") it.chainage else it.distance }
-
                 val xVals = if(type=="L-Section") sortedData.map{it.chainage} else sortedData.map{it.distance}
                 val minX = xVals.minOrNull() ?: 0.0
                 val maxX = xVals.maxOrNull() ?: 10.0
                 val yVals = (if(showPre) sortedData.map{it.preMonsoon} else emptyList()) + (if(showPost) sortedData.map{it.postMonsoon} else emptyList())
                 val minY = if(yVals.isNotEmpty()) floor(yVals.minOrNull()!!) - 1.0 else 0.0
                 val maxY = if(yVals.isNotEmpty()) yVals.maxOrNull()!! else 10.0
-
                 val pxPerMX = (100.0/max(hScale, 1.0)) * IMG_PX_PER_CM
                 val pxPerMY = (100.0/max(vScale, 1.0)) * IMG_PX_PER_CM
-
                 val padLeft = 140.0f
                 val tableRowH = 60.0f
                 val graphH = ((maxY - minY) * pxPerMY).toFloat()
                 val topPad = 50.0f
-
                 val totAreaH = graphH + topPad + tableGap
-
                 val totalDrawH = totAreaH + (3 * tableRowH)
 
                 fun mX(v: Double) = (padLeft + (v-minX)*pxPerMX).toFloat()
                 fun mY(v: Double) = (totAreaH - (v-minY)*pxPerMY - tableGap).toFloat()
-
                 internalMapX = { mX(it) }
                 internalMapY = { mY(it) }
 
-                // Grid
                 if (showGrid) {
                     sortedData.forEach { p ->
                         val x = mX(if(type=="L-Section") p.chainage else p.distance)
-                        if (x > padLeft) {
-                            drawLine(Color.LightGray, Offset(x, 0f), Offset(x, totalDrawH), strokeWidth = 1f)
-                        }
+                        if (x > padLeft) drawLine(Color.LightGray, Offset(x, 0f), Offset(x, totalDrawH), strokeWidth = 1f)
                     }
                 }
 
-                // Drop Lines & RIVER Text
                 val dropColor = Color.LightGray.copy(alpha=0.6f)
                 val count = sortedData.size
-
                 sortedData.forEachIndexed { index, p ->
                     val x = mX(if(type=="L-Section") p.chainage else p.distance)
-
                     val isBank = type == "X-Section" && count > 1 && (index == 1 || index == count - 2)
-
-                    // Determine Line Color (Selected = Red, Bank = Blue, Normal = Gray)
                     val isLineSelected = selectedItem is InteractiveItem.BlueLine && (selectedItem as InteractiveItem.BlueLine).index == index
                     val baseLineColor = if (isBank) Color.Blue else dropColor
                     val lineColor = if(isLineSelected) Color.Red else baseLineColor
 
                     if (x >= padLeft - 1f) {
-                        // Draw Drop Lines
                         if(!deletedBlueLineIndices.contains(index)) {
                             val lineOffset = blueLineOffsets[index] ?: Offset.Zero
                             val lineX = x + lineOffset.x
-                            // Line Y movement isn't typical for drop lines but allowed for flexibility
-
                             if (showPre) drawLine(lineColor, Offset(lineX, mY(p.preMonsoon) + lineOffset.y), Offset(lineX, totAreaH), strokeWidth = if(isLineSelected) 3f else 1f)
                             if (showPost) drawLine(lineColor, Offset(lineX, mY(p.postMonsoon) + lineOffset.y), Offset(lineX, totAreaH), strokeWidth = if(isLineSelected) 3f else 1f)
                         }
-
-                        // Draw "RIVER" text
                         if (isBank && !deletedRiverIndices.contains(index)) {
                             val baseTextY = mY(maxY) - 10f
-
                             val manualOffset = riverOffsets[index] ?: Offset.Zero
                             val drawX = x + manualOffset.x
                             val drawY = baseTextY + manualOffset.y
-
                             val isTextSelected = selectedItem is InteractiveItem.RiverText && (selectedItem as InteractiveItem.RiverText).index == index
                             val textColor = if(isTextSelected) Color.Red else Color.Black
-
-                            // USE DYNAMIC SIZE
                             val riverLayout = textMeasurer.measure("RIVER", style = TextStyle(fontSize = riverTextSize.sp, color = textColor, fontWeight = FontWeight.Bold))
-
-                            rotate(-90f, pivot = Offset(drawX, drawY)) {
-                                drawText(riverLayout, topLeft = Offset(drawX - riverLayout.size.width / 2, drawY))
-                            }
+                            rotate(-90f, pivot = Offset(drawX, drawY)) { drawText(riverLayout, topLeft = Offset(drawX - riverLayout.size.width / 2, drawY)) }
                         }
                     }
                 }
 
-                // Draw Graph Series
                 fun drawSeries(getColor: (RiverPoint) -> Double, awtColor: java.awt.Color, isDotted: Boolean, width: Float, showPoints: Boolean) {
                     val color = Color(awtColor.red, awtColor.green, awtColor.blue)
                     val path = Path()
@@ -415,16 +365,11 @@ fun GraphPageCanvas(
                 if(showPre) drawSeries({it.preMonsoon}, preColor, preDotted, preWidth, preShowPoints)
                 if(showPost) drawSeries({it.postMonsoon}, postColor, postDotted, postWidth, postShowPoints)
 
-                // --- TABLE & BORDERS ---
                 val xEnd = (padLeft + (maxX - minX) * pxPerMX + 20.0).toFloat()
-
-                // Horizontal Lines
                 drawLine(Color.Black, Offset(0f, totAreaH), Offset(xEnd, totAreaH), strokeWidth = 2f)
                 drawLine(Color.Black, Offset(0f, totAreaH+tableRowH), Offset(xEnd, totAreaH+tableRowH), strokeWidth = 2f)
                 drawLine(Color.Black, Offset(0f, totAreaH+2*tableRowH), Offset(xEnd, totAreaH+2*tableRowH), strokeWidth = 2f)
                 drawLine(Color.Black, Offset(0f, totAreaH+3*tableRowH), Offset(xEnd, totAreaH+3*tableRowH), strokeWidth = 2f)
-
-                // Vertical Lines
                 drawLine(Color.Black, Offset(0f, totAreaH), Offset(0f, totAreaH + 3 * tableRowH), strokeWidth = 2f)
                 drawLine(Color.Black, Offset(padLeft, totAreaH), Offset(padLeft, totAreaH + 3 * tableRowH), strokeWidth = 2f)
                 drawLine(Color.Black, Offset(xEnd, totAreaH), Offset(xEnd, totAreaH + 3 * tableRowH), strokeWidth = 2f)
@@ -435,89 +380,55 @@ fun GraphPageCanvas(
                     val colors = listOf(Color(postColor.red, postColor.green, postColor.blue), Color(preColor.red, preColor.green, preColor.blue), Color.Black)
                     vals.forEachIndexed { i, txt ->
                         val cellCenterY = totAreaH + i * tableRowH + tableRowH/2
-                        // DYNAMIC TEXT SIZE
                         val layoutResult = textMeasurer.measure(txt, style = TextStyle(fontSize = tableTextSize.sp, color = colors[i]))
                         val visualX = if (index == 0) x + 8f else x
-                        rotate(-90f, pivot = Offset(visualX, cellCenterY)) {
-                            drawText(layoutResult, topLeft = Offset(visualX - layoutResult.size.width/2, cellCenterY - layoutResult.size.height/2))
-                        }
+                        rotate(-90f, pivot = Offset(visualX, cellCenterY)) { drawText(layoutResult, topLeft = Offset(visualX - layoutResult.size.width/2, cellCenterY - layoutResult.size.height/2)) }
                     }
                 }
 
-                // Y-AXIS LINE AND BACKGROUND
                 val yAxisTop = mY(maxY)
                 drawRect(Color.White, topLeft = Offset(0f, yAxisTop), size = Size(padLeft, (totAreaH - yAxisTop) + 50f))
                 drawLine(Color.Black, Offset(padLeft, yAxisTop), Offset(padLeft, totAreaH), strokeWidth = 2f)
-
-                // --- Y-AXIS LABELS ---
                 for(i in 1..((maxY-minY).toInt())) {
                     val yVal = minY + i
                     val yPos = mY(yVal)
                     if (yPos >= 0 && yPos <= totAreaH) {
                         drawLine(Color.Black, Offset(padLeft - 5f, yPos), Offset(padLeft, yPos), strokeWidth = 1f)
                         val txt = String.format("%.1f", yVal)
-                        // DYNAMIC AXIS SIZE
                         val layout = textMeasurer.measure(txt, style = TextStyle(fontSize = axisLabelSize.sp, color = Color.Black))
-                        val textX = padLeft - 8f - layout.size.width
-                        val textY = yPos - layout.size.height / 2
-                        drawText(layout, topLeft = Offset(textX, textY))
+                        drawText(layout, topLeft = Offset(padLeft - 8f - layout.size.width, yPos - layout.size.height / 2))
                     }
                 }
-
-                // --- DATUM ---
                 val datumY = mY(minY)
                 if (datumY > 0 && datumY < totalDrawH) {
                     val txt = "DATUM=${minY}"
-                    // DYNAMIC DATUM SIZE
                     val layout = textMeasurer.measure(txt, style = TextStyle(fontSize = datumSize.sp))
-                    val textX = padLeft - 8f - layout.size.width
-                    // MOVED UP BY -25f INSTEAD OF -15f
-                    drawText(layout, topLeft = Offset(textX, datumY - 25f))
+                    drawText(layout, topLeft = Offset(padLeft - 8f - layout.size.width, datumY - 25f))
                 }
 
-                // --- TABLE HEADER LABELS ---
                 drawRect(Color.White, topLeft = Offset(0f, totAreaH), size = Size(padLeft, 3 * tableRowH))
                 drawLine(Color.Black, Offset(0f, totAreaH), Offset(0f, totAreaH + 3 * tableRowH), strokeWidth = 2f)
                 drawLine(Color.Black, Offset(padLeft, totAreaH), Offset(padLeft, totAreaH + 3 * tableRowH), strokeWidth = 2f)
                 drawLine(Color.Black, Offset(0f, totAreaH), Offset(padLeft, totAreaH), strokeWidth = 2f)
-
-                val labels = if(type == "L-Section") {
-                    listOf("POST MONSOON RL", "PRE MONSOON RL", "Chainage in mt.")
-                } else {
-                    listOf("POST RL", "PRE RL", "OFFSET")
-                }
-
+                val labels = if(type == "L-Section") listOf("POST MONSOON RL", "PRE MONSOON RL", "Chainage in mt.") else listOf("POST RL", "PRE RL", "OFFSET")
                 labels.forEachIndexed { i, l ->
                     val y = totAreaH + i * tableRowH
                     drawLine(Color.Black, Offset(0f, y), Offset(padLeft, y), strokeWidth = 2f)
                     drawLine(Color.Black, Offset(0f, y + tableRowH), Offset(padLeft, y + tableRowH), strokeWidth = 2f)
-
-                    // DYNAMIC HEADER SIZE
                     val textLayout = textMeasurer.measure(l, style = TextStyle(fontSize = tableTextSize.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center))
-                    val textX = (padLeft - textLayout.size.width) / 2
-                    val textY = y + (tableRowH - textLayout.size.height) / 2
-                    drawText(textLayout, topLeft = Offset(textX, textY))
+                    drawText(textLayout, topLeft = Offset((padLeft - textLayout.size.width) / 2, y + (tableRowH - textLayout.size.height) / 2))
                 }
 
-                // --- FOOTER CHAINAGE LABEL ---
                 if (type == "X-Section" && sortedData.isNotEmpty() && !isChLabelDeleted) {
                     val chainageVal = sortedData.first().chainage
                     val chLabel = "CH:-${String.format("%.1f", chainageVal)}"
                     val footerY = totAreaH + 3 * tableRowH + 10f
                     val tableCenter = xEnd / 2
-
-                    internalChFooterY = footerY
-                    internalTableCenter = tableCenter
-
                     val isChSelected = selectedItem is InteractiveItem.ChainageLabel
                     val chColor = if(isChSelected) Color.Red else Color.Black
-
-                    // USE DYNAMIC SIZE
                     val chLayout = textMeasurer.measure(chLabel, style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = chainageTextSize.sp, color = chColor))
-
                     val drawX = tableCenter - chLayout.size.width/2 + chLabelOffset.x
                     val drawY = footerY + chLabelOffset.y
-
                     drawText(chLayout, topLeft = Offset(drawX, drawY))
                 }
             }

@@ -80,21 +80,17 @@ fun ImagePanel(
     var chainageTextSize by remember { mutableStateOf(18f) }
 
     // --- INTERACTIVE ELEMENT STATE ---
-    // Offsets
     val riverOffsets = remember { mutableStateMapOf<Int, Offset>() }
     val blueLineOffsets = remember { mutableStateMapOf<Int, Offset>() }
     var chLabelOffset by remember { mutableStateOf(Offset.Zero) }
 
-    // Deletions
     val deletedRivers = remember { mutableStateListOf<Int>() }
     val deletedBlueLines = remember { mutableStateListOf<Int>() }
     var isChLabelDeleted by remember { mutableStateOf(false) }
 
-    // Selection
     var selectedItem by remember { mutableStateOf<InteractiveItem?>(null) }
     var showItemDropdown by remember { mutableStateOf(false) }
 
-    // Reset selection if graph changes
     LaunchedEffect(activeGraphId) {
         selectedItem = null
     }
@@ -225,7 +221,6 @@ fun ImagePanel(
                 Spacer(Modifier.height(8.dp))
 
                 // --- ACTION BUTTONS (Reset and Add To Slot) ---
-                // Using a Column here to ensure enough vertical space and alignment
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -259,11 +254,7 @@ fun ImagePanel(
                     Button(
                         onClick = {
                             if (activeGraphId != -100.0 && selectedPartitionSlot != null) {
-                                // --- FIT TO SLOT LOGIC ---
-                                // Instead of calculating real-world mm and overflowing,
-                                // we force the element to adopt the Slot's dimensions exactly.
-                                // The internal GraphPageCanvas will use 'scaleFit' to ensure the graph fits inside.
-
+                                // --- FORCE FIT LOGIC ---
                                 val hS = if(selectedGraphType=="L-Section") lHScale else xHScale
                                 val vS = if(selectedGraphType=="L-Section") lVScale else xVScale
 

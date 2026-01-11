@@ -834,13 +834,18 @@ fun FilePanel(
                             // --- DRAW PARTITION OVERLAY ---
                             if (isActive && isPartitionModeEnabled) {
                                 val config = pageConfigs[item.id] ?: ReportConfig()
-                                val pxPerMm = 1.5f * (zoomPercent / 100f)
+                                // Fetch Paper Dimensions based on user selection
                                 val widthMm = if (isLandscape) selectedPaperSize.heightMm else selectedPaperSize.widthMm
                                 val heightMm = if (isLandscape) selectedPaperSize.widthMm else selectedPaperSize.heightMm
+
+                                // Calculate pixels per mm based on current zoom
+                                val pxPerMm = 1.5f * (zoomPercent / 100f)
+
                                 val paperW = widthMm * pxPerMm
                                 val paperH = heightMm * pxPerMm
 
-                                val partitions = remember(paperW, paperH, config, activeGraphType) {
+                                // CALCULATE SLOTS
+                                val partitions = remember(paperW, paperH, config, activeGraphType, selectedLayoutType) {
                                     calculatePartitions(
                                         paperWidthPx = paperW,
                                         paperHeightPx = paperH,
@@ -855,19 +860,23 @@ fun FilePanel(
                                     )
                                 }
 
+                                // DRAW SLOTS
                                 Canvas(modifier = Modifier.matchParentSize()) {
                                     partitions.forEach { slot ->
                                         val isSelected = selectedPartitionSlot?.id == slot.id
 
                                         if (isSelected) {
+                                            // Blue Highlight for selection
                                             drawRect(Color(0xFF2196F3).copy(alpha = 0.2f), topLeft = Offset(slot.rect.left, slot.rect.top), size = Size(slot.rect.width, slot.rect.height))
                                             drawRect(Color(0xFF2196F3), topLeft = Offset(slot.rect.left, slot.rect.top), size = Size(slot.rect.width, slot.rect.height), style = Stroke(width = 2f))
                                         } else {
+                                            // Gray Dashed for available slots
                                             drawRect(Color.Gray.copy(alpha = 0.3f), topLeft = Offset(slot.rect.left, slot.rect.top), size = Size(slot.rect.width, slot.rect.height), style = Stroke(width = 1f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f))))
                                         }
                                     }
                                 }
 
+                                // HANDLE CLICKS
                                 Box(modifier = Modifier.matchParentSize().pointerInput(partitions) {
                                     detectTapGestures { offset ->
                                         val clicked = partitions.find { it.rect.contains(offset) }
@@ -937,6 +946,7 @@ fun FilePanel(
                 if (draggingElement != null && draggingSourcePageId != null) {
                     val currentElState = pageElementData[draggingSourcePageId]?.find { it.id == draggingElement!!.id } ?: draggingElement!!
                     val sourceRect = pageBounds[draggingSourcePageId]
+                    // Fix ghost width logic to prevent disappearing
                     val ghostWidth = if (sourceRect != null) sourceRect.width * currentElState.widthPercent else 50f
                     val ghostHeight = if (sourceRect != null) sourceRect.height * currentElState.heightPercent else 50f
 
@@ -960,8 +970,14 @@ fun FilePanel(
             }
         }
 
-        // Status Bar
-        Row(modifier = Modifier.fillMaxWidth().background(Color(0xFF2B579A)).padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        // FOOTER STATUS BAR (RESTORED)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF2B579A))
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Text("Page ${activePageIndex + 1} of ${reportItems.size}", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.width(16.dp))
             IconButton(onClick = {
@@ -973,6 +989,7 @@ fun FilePanel(
                 pageAnnexureValues[newItem.id] = ""; pageB1Values[newItem.id] = ""; pageNumberOverrides[newItem.id] = "${reportItems.size}"
                 scope.launch { listState.animateScrollToItem(reportItems.lastIndex); activePageIndex = reportItems.lastIndex }
             }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.NoteAdd, "New Page", tint = Color.White, modifier = Modifier.size(16.dp)) }
+
             IconButton(onClick = {
                 if (reportItems.size > 0 && activePageIndex < reportItems.size) {
                     val id = reportItems[activePageIndex].id
@@ -986,6 +1003,7 @@ fun FilePanel(
                     activePageIndex = activePageIndex.coerceAtMost(reportItems.lastIndex)
                 }
             }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Delete, "Delete Page", tint = Color.Red, modifier = Modifier.size(16.dp)) }
+
             Spacer(Modifier.weight(1f))
             Text("-", color = Color.White, modifier = Modifier.clickable { if(zoomPercent>30) zoomPercent-=5 }.padding(horizontal=4.dp))
             Slider(value = zoomPercent, onValueChange = { zoomPercent = it }, valueRange = 30f..200f, modifier = Modifier.width(100.dp), colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color.White))
