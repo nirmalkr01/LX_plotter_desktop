@@ -1,13 +1,17 @@
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.HorizontalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.shadow
@@ -67,6 +71,7 @@ fun FilePanel(
 ) {
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
+    val horizontalScrollState = rememberScrollState() // Added for horizontal scrolling
     val density = LocalDensity.current
 
     // --- STATE MANAGEMENT ---
@@ -631,195 +636,202 @@ fun FilePanel(
                     parentOffset = layoutCoordinates.positionInWindow()
                 }
         ) {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                contentPadding = PaddingValues(bottom = 100.dp)
-            ) {
-                itemsIndexed(reportItems) { idx, item ->
-                    val isActive = idx == activePageIndex
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(bottom = 4.dp).onGloballyPositioned { pageBounds[item.id] = Rect(it.positionInWindow(), Size(it.size.width.toFloat(), it.size.height.toFloat())) }) {
-                        Box(modifier = Modifier.shadow(8.dp).border(if(isActive) 2.dp else 0.dp, if(isActive) Color(0xFF2B579A) else Color.Transparent)) {
-                            // DETERMINE PAGE NUMBER TO DISPLAY
-                            val displayPageNumStr = pageNumberOverrides[item.id] ?: "${idx + 1}"
-                            val displayPageNumInt = displayPageNumStr.toIntOrNull() ?: (idx + 1)
+            Box(modifier = Modifier.fillMaxSize().horizontalScroll(horizontalScrollState)) { // Added Box with horizontalScroll
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.widthIn(min = 100.dp).fillMaxHeight(), // Ensure column can expand horizontally if needed, or simply fills
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    contentPadding = PaddingValues(bottom = 100.dp)
+                ) {
+                    itemsIndexed(reportItems) { idx, item ->
+                        val isActive = idx == activePageIndex
+                        // Ensure each item requests enough width based on paper size/zoom, preventing shrink
+                        val widthMm = if (isLandscape) selectedPaperSize.heightMm else selectedPaperSize.widthMm
+                        val pxPerMm = 1.5f * (zoomPercent / 100f)
+                        val paperW_dp = (widthMm * pxPerMm).dp
 
-                            EditablePageContainer(
-                                item = item, pageNumber = displayPageNumInt, totalPageCount = reportItems.size, annexureValue = pageAnnexureValues[item.id] ?: "", b1Text = pageB1Values[item.id] ?: "",
-                                paperSize = selectedPaperSize, layoutType = selectedLayoutType, isLandscape = isLandscape, config = pageConfigs[item.id] ?: ReportConfig(), zoomLevel = zoomPercent / 100f,
-                                textAnnotations = pageTextData[item.id] ?: mutableStateListOf(), elements = pageElementData[item.id] ?: mutableStateListOf(),
-                                hScale = if (pageConfigs[item.id]?.legendType == "L-Section") lHScale else xHScale, vScale = if (pageConfigs[item.id]?.legendType == "L-Section") lVScale else xVScale,
-                                showPre = showPre, showPost = showPost, preColor = preColor, postColor = postColor, preDotted = preDotted, postDotted = postDotted, preWidth = preWidth, postWidth = postWidth, preShowPoints = preShowPoints, postShowPoints = postShowPoints, showGrid = showGrid,
-                                showPageNumber = showPageNumber, currentTextColor = globalTextColor, currentTextSize = globalTextSize, isBold = globalIsBold, isItalic = globalIsItalic, isUnderline = globalIsUnderline, currentTextAlign = globalTextAlign, currentFontFamily = globalFontFamily,
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.width(paperW_dp).padding(bottom = 4.dp).onGloballyPositioned { pageBounds[item.id] = Rect(it.positionInWindow(), Size(it.size.width.toFloat(), it.size.height.toFloat())) }) {
+                            Box(modifier = Modifier.shadow(8.dp).border(if(isActive) 2.dp else 0.dp, if(isActive) Color(0xFF2B579A) else Color.Transparent)) {
+                                // DETERMINE PAGE NUMBER TO DISPLAY
+                                val displayPageNumStr = pageNumberOverrides[item.id] ?: "${idx + 1}"
+                                val displayPageNumInt = displayPageNumStr.toIntOrNull() ?: (idx + 1)
 
-                                // Disable standard editing interaction in Partition Mode
-                                isTextToolActive = isTextToolActive && isActive && !isPartitionModeEnabled,
-                                selectedAnnotationId = if(isActive && !isPartitionModeEnabled) selectedAnnotationId else null,
-                                selectedElementId = if(isActive && !isPartitionModeEnabled) selectedElementId else null,
-                                isSelectToolActive = isSelectToolActive && isActive && !isPartitionModeEnabled,
-                                multiSelectedAnnotationIds = if(isActive && !isPartitionModeEnabled) multiSelectedAnnotationIds else mutableListOf(),
-                                multiSelectedElementIds = if(isActive && !isPartitionModeEnabled) multiSelectedElementIds else mutableListOf(),
+                                EditablePageContainer(
+                                    item = item, pageNumber = displayPageNumInt, totalPageCount = reportItems.size, annexureValue = pageAnnexureValues[item.id] ?: "", b1Text = pageB1Values[item.id] ?: "",
+                                    paperSize = selectedPaperSize, layoutType = selectedLayoutType, isLandscape = isLandscape, config = pageConfigs[item.id] ?: ReportConfig(), zoomLevel = zoomPercent / 100f,
+                                    textAnnotations = pageTextData[item.id] ?: mutableStateListOf(), elements = pageElementData[item.id] ?: mutableStateListOf(),
+                                    hScale = if (pageConfigs[item.id]?.legendType == "L-Section") lHScale else xHScale, vScale = if (pageConfigs[item.id]?.legendType == "L-Section") lVScale else xVScale,
+                                    showPre = showPre, showPost = showPost, preColor = preColor, postColor = postColor, preDotted = preDotted, postDotted = postDotted, preWidth = preWidth, postWidth = postWidth, preShowPoints = preShowPoints, postShowPoints = postShowPoints, showGrid = showGrid,
+                                    showPageNumber = showPageNumber, currentTextColor = globalTextColor, currentTextSize = globalTextSize, isBold = globalIsBold, isItalic = globalIsItalic, isUnderline = globalIsUnderline, currentTextAlign = globalTextAlign, currentFontFamily = globalFontFamily,
 
-                                canPaste = (clipboardTextList.isNotEmpty() || clipboardElementList.isNotEmpty()) && !isPartitionModeEnabled,
-                                onAnnotationSelected = { id ->
-                                    if(!isPartitionModeEnabled) {
-                                        selectedAnnotationId = id
-                                        selectedElementId = null
-                                        if(id != null) activePageIndex = idx
-                                        if(!isSelectToolActive) {
-                                            multiSelectedAnnotationIds.clear()
-                                            multiSelectedElementIds.clear()
-                                        }
-                                    }
-                                },
-                                onElementSelected = { id ->
-                                    if(!isPartitionModeEnabled) {
-                                        selectedElementId = id
-                                        selectedAnnotationId = null
-                                        if(id != null) activePageIndex = idx
-                                        if(!isSelectToolActive) {
-                                            multiSelectedAnnotationIds.clear()
-                                            multiSelectedElementIds.clear()
-                                        }
-                                    }
-                                },
-                                onPageSelected = { activePageIndex = idx; if(!isSelectToolActive && !isPartitionModeEnabled) { selectedAnnotationId = null; selectedElementId = null } },
-                                onToolUsed = { isTextToolActive = false }, onGraphPosChange = { x, y -> if(!isPartitionModeEnabled) reportItems[idx] = item.copy(xOffset = x, yOffset = y) },
-                                onDeleteAnnotation = { id -> if(!isPartitionModeEnabled) { pageTextData[item.id]?.removeAll { it.id == id }; selectedAnnotationId = null } },
-                                onDeleteElement = { id -> if(!isPartitionModeEnabled) { pageElementData[item.id]?.removeAll { it.id == id }; selectedElementId = null } },
-                                onCopyAnnotation = { if(!isPartitionModeEnabled) { clipboardTextList = listOf(it); clipboardElementList = emptyList() } },
-                                onPasteAnnotation = { if(!isPartitionModeEnabled) performPaste() },
-                                onContextMenuCopy = { if(!isPartitionModeEnabled) performCopy() },
-                                onContextMenuPaste = { if(!isPartitionModeEnabled) performPaste() },
-                                onContextMenuDelete = { if(!isPartitionModeEnabled) performDelete() },
-                                hasClipboardContent = clipboardTextList.isNotEmpty() || clipboardElementList.isNotEmpty(),
+                                    // Disable standard editing interaction in Partition Mode
+                                    isTextToolActive = isTextToolActive && isActive && !isPartitionModeEnabled,
+                                    selectedAnnotationId = if(isActive && !isPartitionModeEnabled) selectedAnnotationId else null,
+                                    selectedElementId = if(isActive && !isPartitionModeEnabled) selectedElementId else null,
+                                    isSelectToolActive = isSelectToolActive && isActive && !isPartitionModeEnabled,
+                                    multiSelectedAnnotationIds = if(isActive && !isPartitionModeEnabled) multiSelectedAnnotationIds else mutableListOf(),
+                                    multiSelectedElementIds = if(isActive && !isPartitionModeEnabled) multiSelectedElementIds else mutableListOf(),
 
-                                hiddenAnnotationId = if(draggingAnnotation != null && draggingSourcePageId == item.id) draggingAnnotation!!.id else null,
-                                hiddenElementId = if(draggingElement != null && draggingSourcePageId == item.id) draggingElement!!.id else null,
-
-                                // Disable Dragging in Partition Mode
-                                onGlobalDragStart = { annotation, pos ->
-                                    if(!isPartitionModeEnabled) { draggingAnnotation = annotation; draggingSourcePageId = item.id; draggingCurrentOffset = pos; isDraggingGroup = false }
-                                },
-                                onGlobalElementDragStart = { element, pos ->
-                                    if(!isPartitionModeEnabled) { draggingElement = element; draggingSourcePageId = item.id; draggingCurrentOffset = pos; isDraggingGroup = false }
-                                },
-                                onGroupDragStart = { pos, rect ->
-                                    if(!isPartitionModeEnabled) { isDraggingGroup = true; draggingSourcePageId = item.id; draggingCurrentOffset = pos; groupDragStartBoxRelative = pos - rect.topLeft; groupGhostBounds = rect; groupGhostTexts = pageTextData[item.id]?.filter { multiSelectedAnnotationIds.contains(it.id) }?.map { it.copy() } ?: emptyList(); groupGhostElements = pageElementData[item.id]?.filter { multiSelectedElementIds.contains(it.id) }?.map { it.copy() } ?: emptyList() }
-                                },
-                                onGlobalDrag = { dragDelta ->
-                                    if(!isPartitionModeEnabled) draggingCurrentOffset += dragDelta
-                                },
-                                onGlobalDragEnd = {
-                                    // CROSS-PAGE DROP LOGIC FOR GROUPS AND SINGLES
-                                    if(!isPartitionModeEnabled) {
-                                        var droppedPageId: String? = null
-                                        var targetRect: Rect? = null
-
-                                        // Find which page we dropped on
-                                        for ((pId, rect) in pageBounds) {
-                                            if (rect.contains(draggingCurrentOffset)) {
-                                                droppedPageId = pId
-                                                targetRect = rect
-                                                break
+                                    canPaste = (clipboardTextList.isNotEmpty() || clipboardElementList.isNotEmpty()) && !isPartitionModeEnabled,
+                                    onAnnotationSelected = { id ->
+                                        if(!isPartitionModeEnabled) {
+                                            selectedAnnotationId = id
+                                            selectedElementId = null
+                                            if(id != null) activePageIndex = idx
+                                            if(!isSelectToolActive) {
+                                                multiSelectedAnnotationIds.clear()
+                                                multiSelectedElementIds.clear()
                                             }
                                         }
+                                    },
+                                    onElementSelected = { id ->
+                                        if(!isPartitionModeEnabled) {
+                                            selectedElementId = id
+                                            selectedAnnotationId = null
+                                            if(id != null) activePageIndex = idx
+                                            if(!isSelectToolActive) {
+                                                multiSelectedAnnotationIds.clear()
+                                                multiSelectedElementIds.clear()
+                                            }
+                                        }
+                                    },
+                                    onPageSelected = { activePageIndex = idx; if(!isSelectToolActive && !isPartitionModeEnabled) { selectedAnnotationId = null; selectedElementId = null } },
+                                    onToolUsed = { isTextToolActive = false }, onGraphPosChange = { x, y -> if(!isPartitionModeEnabled) reportItems[idx] = item.copy(xOffset = x, yOffset = y) },
+                                    onDeleteAnnotation = { id -> if(!isPartitionModeEnabled) { pageTextData[item.id]?.removeAll { it.id == id }; selectedAnnotationId = null } },
+                                    onDeleteElement = { id -> if(!isPartitionModeEnabled) { pageElementData[item.id]?.removeAll { it.id == id }; selectedElementId = null } },
+                                    onCopyAnnotation = { if(!isPartitionModeEnabled) { clipboardTextList = listOf(it); clipboardElementList = emptyList() } },
+                                    onPasteAnnotation = { if(!isPartitionModeEnabled) performPaste() },
+                                    onContextMenuCopy = { if(!isPartitionModeEnabled) performCopy() },
+                                    onContextMenuPaste = { if(!isPartitionModeEnabled) performPaste() },
+                                    onContextMenuDelete = { if(!isPartitionModeEnabled) performDelete() },
+                                    hasClipboardContent = clipboardTextList.isNotEmpty() || clipboardElementList.isNotEmpty(),
 
-                                        if (droppedPageId != null && targetRect != null && draggingSourcePageId != null) {
+                                    hiddenAnnotationId = if(draggingAnnotation != null && draggingSourcePageId == item.id) draggingAnnotation!!.id else null,
+                                    hiddenElementId = if(draggingElement != null && draggingSourcePageId == item.id) draggingElement!!.id else null,
 
-                                            if (isDraggingGroup) {
-                                                // Determine group new top-left relative to target page
-                                                val newBoxTopLeftScreen = draggingCurrentOffset - groupDragStartBoxRelative
-                                                val relativeX = newBoxTopLeftScreen.x - targetRect.left
-                                                val relativeY = newBoxTopLeftScreen.y - targetRect.top
+                                    // Disable Dragging in Partition Mode
+                                    onGlobalDragStart = { annotation, pos ->
+                                        if(!isPartitionModeEnabled) { draggingAnnotation = annotation; draggingSourcePageId = item.id; draggingCurrentOffset = pos; isDraggingGroup = false }
+                                    },
+                                    onGlobalElementDragStart = { element, pos ->
+                                        if(!isPartitionModeEnabled) { draggingElement = element; draggingSourcePageId = item.id; draggingCurrentOffset = pos; isDraggingGroup = false }
+                                    },
+                                    onGroupDragStart = { pos, rect ->
+                                        if(!isPartitionModeEnabled) { isDraggingGroup = true; draggingSourcePageId = item.id; draggingCurrentOffset = pos; groupDragStartBoxRelative = pos - rect.topLeft; groupGhostBounds = rect; groupGhostTexts = pageTextData[item.id]?.filter { multiSelectedAnnotationIds.contains(it.id) }?.map { it.copy() } ?: emptyList(); groupGhostElements = pageElementData[item.id]?.filter { multiSelectedElementIds.contains(it.id) }?.map { it.copy() } ?: emptyList() }
+                                    },
+                                    onGlobalDrag = { dragDelta ->
+                                        if(!isPartitionModeEnabled) draggingCurrentOffset += dragDelta
+                                    },
+                                    onGlobalDragEnd = {
+                                        // CROSS-PAGE DROP LOGIC FOR GROUPS AND SINGLES
+                                        if(!isPartitionModeEnabled) {
+                                            var droppedPageId: String? = null
+                                            var targetRect: Rect? = null
 
-                                                val pageW = targetRect.width
-                                                val pageH = targetRect.height
-                                                val sourceRect = pageBounds[draggingSourcePageId!!]!!
-
-                                                val originalBoxLeftPx = groupGhostBounds.left - sourceRect.left
-                                                val originalBoxTopPx = groupGhostBounds.top - sourceRect.top
-
-                                                val deltaX = relativeX - originalBoxLeftPx
-                                                val deltaY = relativeY - originalBoxTopPx
-
-                                                val deltaXPct = deltaX / pageW
-                                                val deltaYPct = deltaY / pageH
-
-                                                val sourceTexts = pageTextData[draggingSourcePageId!!]!!
-                                                val movingTextsIDs = multiSelectedAnnotationIds.toList()
-
-                                                if (droppedPageId != draggingSourcePageId) {
-                                                    val movingItems = sourceTexts.filter { movingTextsIDs.contains(it.id) }.map {
-                                                        it.copy(xPercent = it.xPercent + deltaXPct, yPercent = it.yPercent + deltaYPct)
-                                                    }
-                                                    sourceTexts.removeAll { movingTextsIDs.contains(it.id) }
-                                                    pageTextData[droppedPageId]?.addAll(movingItems)
-                                                } else {
-                                                    movingTextsIDs.forEach { id ->
-                                                        val idx = sourceTexts.indexOfFirst { it.id == id }
-                                                        if (idx != -1) {
-                                                            val old = sourceTexts[idx]
-                                                            sourceTexts[idx] = old.copy(xPercent = old.xPercent + deltaXPct, yPercent = old.yPercent + deltaYPct)
-                                                        }
-                                                    }
+                                            // Find which page we dropped on
+                                            for ((pId, rect) in pageBounds) {
+                                                if (rect.contains(draggingCurrentOffset)) {
+                                                    droppedPageId = pId
+                                                    targetRect = rect
+                                                    break
                                                 }
+                                            }
 
-                                                val sourceElems = pageElementData[draggingSourcePageId!!]!!
-                                                val movingElemsIDs = multiSelectedElementIds.toList()
+                                            if (droppedPageId != null && targetRect != null && draggingSourcePageId != null) {
 
-                                                if (droppedPageId != draggingSourcePageId) {
-                                                    val movingItems = sourceElems.filter { movingElemsIDs.contains(it.id) }.map {
-                                                        it.copy(xPercent = it.xPercent + deltaXPct, yPercent = it.yPercent + deltaYPct)
-                                                    }
-                                                    sourceElems.removeAll { movingElemsIDs.contains(it.id) }
-                                                    pageElementData[droppedPageId]?.addAll(movingItems)
-                                                } else {
-                                                    movingElemsIDs.forEach { id ->
-                                                        val idx = sourceElems.indexOfFirst { it.id == id }
-                                                        if (idx != -1) {
-                                                            val old = sourceElems[idx]
-                                                            sourceElems[idx] = old.copy(xPercent = old.xPercent + deltaXPct, yPercent = old.yPercent + deltaYPct)
-                                                        }
-                                                    }
-                                                }
-                                                activePageIndex = reportItems.indexOfFirst { it.id == droppedPageId }
+                                                if (isDraggingGroup) {
+                                                    // Determine group new top-left relative to target page
+                                                    val newBoxTopLeftScreen = draggingCurrentOffset - groupDragStartBoxRelative
+                                                    val relativeX = newBoxTopLeftScreen.x - targetRect.left
+                                                    val relativeY = newBoxTopLeftScreen.y - targetRect.top
 
-                                            } else {
-                                                val relX = draggingCurrentOffset.x - targetRect.left
-                                                val relY = draggingCurrentOffset.y - targetRect.top
-                                                val newXPercent = relX / targetRect.width
-                                                val newYPercent = relY / targetRect.height
+                                                    val pageW = targetRect.width
+                                                    val pageH = targetRect.height
+                                                    val sourceRect = pageBounds[draggingSourcePageId!!]!!
 
-                                                if (draggingAnnotation != null) {
-                                                    val sourceList = pageTextData[draggingSourcePageId!!]
-                                                    val obj = sourceList?.find { it.id == draggingAnnotation!!.id } ?: draggingAnnotation!!
-                                                    val movedObj = obj.copy(xPercent = newXPercent, yPercent = newYPercent)
+                                                    val originalBoxLeftPx = groupGhostBounds.left - sourceRect.left
+                                                    val originalBoxTopPx = groupGhostBounds.top - sourceRect.top
+
+                                                    val deltaX = relativeX - originalBoxLeftPx
+                                                    val deltaY = relativeY - originalBoxTopPx
+
+                                                    val deltaXPct = deltaX / pageW
+                                                    val deltaYPct = deltaY / pageH
+
+                                                    val sourceTexts = pageTextData[draggingSourcePageId!!]!!
+                                                    val movingTextsIDs = multiSelectedAnnotationIds.toList()
 
                                                     if (droppedPageId != draggingSourcePageId) {
-                                                        pageTextData[draggingSourcePageId!!]?.removeAll { it.id == draggingAnnotation!!.id }
-                                                        pageTextData[droppedPageId]?.add(movedObj)
-                                                        activePageIndex = reportItems.indexOfFirst { it.id == droppedPageId }
+                                                        val movingItems = sourceTexts.filter { movingTextsIDs.contains(it.id) }.map {
+                                                            it.copy(xPercent = it.xPercent + deltaXPct, yPercent = it.yPercent + deltaYPct)
+                                                        }
+                                                        sourceTexts.removeAll { movingTextsIDs.contains(it.id) }
+                                                        pageTextData[droppedPageId]?.addAll(movingItems)
                                                     } else {
-                                                        val idx = sourceList?.indexOfFirst { it.id == draggingAnnotation!!.id }
-                                                        if (idx != null && idx != -1) sourceList[idx] = movedObj
+                                                        movingTextsIDs.forEach { id ->
+                                                            val idx = sourceTexts.indexOfFirst { it.id == id }
+                                                            if (idx != -1) {
+                                                                val old = sourceTexts[idx]
+                                                                sourceTexts[idx] = old.copy(xPercent = old.xPercent + deltaXPct, yPercent = old.yPercent + deltaYPct)
+                                                            }
+                                                        }
                                                     }
-                                                }
 
-                                                if (draggingElement != null) {
-                                                    val sourceList = pageElementData[draggingSourcePageId!!]
-                                                    val obj = sourceList?.find { it.id == draggingElement!!.id } ?: draggingElement!!
-                                                    val movedObj = obj.copy(xPercent = newXPercent, yPercent = newYPercent)
+                                                    val sourceElems = pageElementData[draggingSourcePageId!!]!!
+                                                    val movingElemsIDs = multiSelectedElementIds.toList()
 
                                                     if (droppedPageId != draggingSourcePageId) {
-                                                        pageElementData[draggingSourcePageId!!]?.removeAll { it.id == draggingElement!!.id }
-                                                        pageElementData[droppedPageId]?.add(movedObj)
-                                                        activePageIndex = reportItems.indexOfFirst { it.id == droppedPageId }
+                                                        val movingItems = sourceElems.filter { movingElemsIDs.contains(it.id) }.map {
+                                                            it.copy(xPercent = it.xPercent + deltaXPct, yPercent = it.yPercent + deltaYPct)
+                                                        }
+                                                        sourceElems.removeAll { movingElemsIDs.contains(it.id) }
+                                                        pageElementData[droppedPageId]?.addAll(movingItems)
                                                     } else {
-                                                        val idx = sourceList?.indexOfFirst { it.id == draggingElement!!.id }
-                                                        if (idx != null && idx != -1) sourceList[idx] = movedObj
+                                                        movingElemsIDs.forEach { id ->
+                                                            val idx = sourceElems.indexOfFirst { it.id == id }
+                                                            if (idx != -1) {
+                                                                val old = sourceElems[idx]
+                                                                sourceElems[idx] = old.copy(xPercent = old.xPercent + deltaXPct, yPercent = old.yPercent + deltaYPct)
+                                                            }
+                                                        }
+                                                    }
+                                                    activePageIndex = reportItems.indexOfFirst { it.id == droppedPageId }
+
+                                                } else {
+                                                    val relX = draggingCurrentOffset.x - targetRect.left
+                                                    val relY = draggingCurrentOffset.y - targetRect.top
+                                                    val newXPercent = relX / targetRect.width
+                                                    val newYPercent = relY / targetRect.height
+
+                                                    if (draggingAnnotation != null) {
+                                                        val sourceList = pageTextData[draggingSourcePageId!!]
+                                                        val obj = sourceList?.find { it.id == draggingAnnotation!!.id } ?: draggingAnnotation!!
+                                                        val movedObj = obj.copy(xPercent = newXPercent, yPercent = newYPercent)
+
+                                                        if (droppedPageId != draggingSourcePageId) {
+                                                            pageTextData[draggingSourcePageId!!]?.removeAll { it.id == draggingAnnotation!!.id }
+                                                            pageTextData[droppedPageId]?.add(movedObj)
+                                                            activePageIndex = reportItems.indexOfFirst { it.id == droppedPageId }
+                                                        } else {
+                                                            val idx = sourceList?.indexOfFirst { it.id == draggingAnnotation!!.id }
+                                                            if (idx != null && idx != -1) sourceList[idx] = movedObj
+                                                        }
+                                                    }
+
+                                                    if (draggingElement != null) {
+                                                        val sourceList = pageElementData[draggingSourcePageId!!]
+                                                        val obj = sourceList?.find { it.id == draggingElement!!.id } ?: draggingElement!!
+                                                        val movedObj = obj.copy(xPercent = newXPercent, yPercent = newYPercent)
+
+                                                        if (droppedPageId != draggingSourcePageId) {
+                                                            pageElementData[draggingSourcePageId!!]?.removeAll { it.id == draggingElement!!.id }
+                                                            pageElementData[droppedPageId]?.add(movedObj)
+                                                            activePageIndex = reportItems.indexOfFirst { it.id == droppedPageId }
+                                                        } else {
+                                                            val idx = sourceList?.indexOfFirst { it.id == draggingElement!!.id }
+                                                            if (idx != null && idx != -1) sourceList[idx] = movedObj
+                                                        }
                                                     }
                                                 }
                                             }
@@ -828,63 +840,63 @@ fun FilePanel(
                                         draggingAnnotation = null; draggingElement = null; draggingSourcePageId = null; isDraggingGroup = false
                                         groupGhostTexts = emptyList(); groupGhostElements = emptyList()
                                     }
-                                }
-                            )
+                                )
 
-                            // --- DRAW PARTITION OVERLAY ---
-                            if (isActive && isPartitionModeEnabled) {
-                                val config = pageConfigs[item.id] ?: ReportConfig()
-                                // Fetch Paper Dimensions based on user selection
-                                val widthMm = if (isLandscape) selectedPaperSize.heightMm else selectedPaperSize.widthMm
-                                val heightMm = if (isLandscape) selectedPaperSize.widthMm else selectedPaperSize.heightMm
+                                // --- DRAW PARTITION OVERLAY ---
+                                if (isActive && isPartitionModeEnabled) {
+                                    val config = pageConfigs[item.id] ?: ReportConfig()
+                                    // Fetch Paper Dimensions based on user selection
+                                    val widthMm = if (isLandscape) selectedPaperSize.heightMm else selectedPaperSize.widthMm
+                                    val heightMm = if (isLandscape) selectedPaperSize.widthMm else selectedPaperSize.heightMm
 
-                                // Calculate pixels per mm based on current zoom
-                                val pxPerMm = 1.5f * (zoomPercent / 100f)
+                                    // Calculate pixels per mm based on current zoom
+                                    val pxPerMm = 1.5f * (zoomPercent / 100f)
 
-                                val paperW = widthMm * pxPerMm
-                                val paperH = heightMm * pxPerMm
+                                    val paperW = widthMm * pxPerMm
+                                    val paperH = heightMm * pxPerMm
 
-                                // CALCULATE SLOTS
-                                val partitions = remember(paperW, paperH, config, activeGraphType, selectedLayoutType) {
-                                    calculatePartitions(
-                                        paperWidthPx = paperW,
-                                        paperHeightPx = paperH,
-                                        marginTopPx = config.marginTop * pxPerMm,
-                                        marginBottomPx = config.marginBottom * pxPerMm,
-                                        marginLeftPx = config.marginLeft * pxPerMm,
-                                        marginRightPx = config.marginRight * pxPerMm,
-                                        layoutType = selectedLayoutType,
-                                        graphType = activeGraphType,
-                                        config = config,
-                                        pxPerMm = pxPerMm
-                                    )
-                                }
+                                    // CALCULATE SLOTS
+                                    val partitions = remember(paperW, paperH, config, activeGraphType, selectedLayoutType) {
+                                        calculatePartitions(
+                                            paperWidthPx = paperW,
+                                            paperHeightPx = paperH,
+                                            marginTopPx = config.marginTop * pxPerMm,
+                                            marginBottomPx = config.marginBottom * pxPerMm,
+                                            marginLeftPx = config.marginLeft * pxPerMm,
+                                            marginRightPx = config.marginRight * pxPerMm,
+                                            layoutType = selectedLayoutType,
+                                            graphType = activeGraphType,
+                                            config = config,
+                                            pxPerMm = pxPerMm
+                                        )
+                                    }
 
-                                // DRAW SLOTS
-                                Canvas(modifier = Modifier.matchParentSize()) {
-                                    partitions.forEach { slot ->
-                                        val isSelected = selectedPartitionSlot?.id == slot.id
+                                    // DRAW SLOTS
+                                    Canvas(modifier = Modifier.matchParentSize()) {
+                                        partitions.forEach { slot ->
+                                            val isSelected = selectedPartitionSlot?.id == slot.id
 
-                                        if (isSelected) {
-                                            // Blue Highlight for selection
-                                            drawRect(Color(0xFF2196F3).copy(alpha = 0.2f), topLeft = Offset(slot.rect.left, slot.rect.top), size = Size(slot.rect.width, slot.rect.height))
-                                            drawRect(Color(0xFF2196F3), topLeft = Offset(slot.rect.left, slot.rect.top), size = Size(slot.rect.width, slot.rect.height), style = Stroke(width = 2f))
-                                        } else {
-                                            // Gray Dashed for available slots
-                                            drawRect(Color.Gray.copy(alpha = 0.3f), topLeft = Offset(slot.rect.left, slot.rect.top), size = Size(slot.rect.width, slot.rect.height), style = Stroke(width = 1f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f))))
+                                            if (isSelected) {
+                                                // Blue Highlight for selection
+                                                drawRect(Color(0xFF2196F3).copy(alpha = 0.2f), topLeft = Offset(slot.rect.left, slot.rect.top), size = Size(slot.rect.width, slot.rect.height))
+                                                drawRect(Color(0xFF2196F3), topLeft = Offset(slot.rect.left, slot.rect.top), size = Size(slot.rect.width, slot.rect.height), style = Stroke(width = 2f))
+                                            } else {
+                                                // Gray Dashed for available slots
+                                                drawRect(Color.Gray.copy(alpha = 0.3f), topLeft = Offset(slot.rect.left, slot.rect.top), size = Size(slot.rect.width, slot.rect.height), style = Stroke(width = 1f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f))))
+                                            }
                                         }
                                     }
-                                }
 
-                                // HANDLE CLICKS
-                                Box(modifier = Modifier.matchParentSize().pointerInput(partitions) {
-                                    detectTapGestures { offset ->
-                                        val clicked = partitions.find { it.rect.contains(offset) }
-                                        if (clicked != null) {
-                                            onPartitionSelected(clicked)
+                                    // HANDLE CLICKS
+                                    Box(modifier = Modifier.matchParentSize().pointerInput(partitions) {
+                                        detectTapGestures { offset ->
+                                            val clicked = partitions.find { it.rect.contains(offset) }
+                                            if (clicked != null) {
+                                                onPartitionSelected(clicked)
+                                            }
                                         }
-                                    }
-                                })
+                                    })
+                                }
                             }
                         }
                     }
@@ -968,6 +980,11 @@ fun FilePanel(
                     }
                 }
             }
+            // Add Horizontal Scrollbar
+            HorizontalScrollbar(
+                adapter = rememberScrollbarAdapter(horizontalScrollState),
+                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = 0.dp) // Adjust padding if needed to not overlap status bar
+            )
         }
 
         // FOOTER STATUS BAR (RESTORED)
