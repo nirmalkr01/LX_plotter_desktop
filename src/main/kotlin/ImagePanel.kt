@@ -1,8 +1,12 @@
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -11,27 +15,41 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import kotlin.math.floor
+import kotlin.math.max
 
 // Sealed class to identify what is selected
 sealed class InteractiveItem {
     data class RiverText(val index: Int, val isLeft: Boolean) : InteractiveItem()
     data class BlueLine(val index: Int, val isLeft: Boolean) : InteractiveItem()
     data object ChainageLabel : InteractiveItem()
+
+    // NEW: L-Section Specific Items
+    data object LSecPreArrow : InteractiveItem()
+    data object LSecPreText : InteractiveItem()
+    data object LSecPostArrow : InteractiveItem()
+    data object LSecPostText : InteractiveItem()
 }
+
+// Data class for Split Segments
+data class LSectionSplit(val index: Int, val start: Double, val end: Double)
 
 @Composable
 fun ImagePanel(
     riverData: List<RiverPoint>,
     activeGraphId: Double,
-    startCh: Double,
-    endCh: Double,
+    startCh: Double, // Passed from parent
+    endCh: Double,   // Passed from parent
     selectedGraphType: String,
     lHScale: Double, lVScale: Double,
     xHScale: Double, xVScale: Double,
@@ -42,21 +60,30 @@ fun ImagePanel(
     preShowPoints: Boolean, postShowPoints: Boolean,
     showGrid: Boolean,
     selectedPartitionSlot: PartitionSlot? = null,
-    // Note: targetPaperSize is kept for compatibility but logic now fits to slot
-    targetPaperSize: PaperSize = PaperSize.A4,
+    // CHANGED DEFAULT TO A3 FOR ENGINEERING STANDARD
+    targetPaperSize: PaperSize = PaperSize.A3,
     targetIsLandscape: Boolean = true,
     onAddToReport: (ReportElement) -> Unit,
     onStatusChange: (String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
+
+    // --- INTERNAL CHAINAGE STATE ---
+    var currentStartCh by remember(startCh) { mutableStateOf(startCh) }
+    var currentEndCh by remember(endCh) { mutableStateOf(endCh) }
+
+    // --- AUTO SPLIT STATE ---
+    var generatedSplits by remember { mutableStateOf<List<LSectionSplit>>(emptyList()) }
+    var activeSplitIndex by remember { mutableStateOf(-1) }
+
     val rawConfig = ReportConfig(
         marginTop = 2f, marginBottom = 2f, marginLeft = 2f, marginRight = 2f,
         showOuterBorder = false, showInnerBorder = false
     )
 
-    // --- CALCULATE DATA VIEW FIRST ---
-    val viewData = remember(riverData, activeGraphId, startCh, endCh, selectedGraphType) {
-        if (activeGraphId == -1.0) getCurrentViewData(riverData, "L-Section", 0.0, startCh, endCh)
+    // --- CALCULATE DATA VIEW ---
+    val viewData = remember(riverData, activeGraphId, currentStartCh, currentEndCh, selectedGraphType) {
+        if (activeGraphId == -1.0) getCurrentViewData(riverData, "L-Section", 0.0, currentStartCh, currentEndCh)
         else getCurrentViewData(riverData, "X-Section", activeGraphId, 0.0, 0.0)
     }
 
@@ -74,25 +101,34 @@ fun ImagePanel(
     var axisSize by remember { mutableStateOf(14f) }
     var tableTextSize by remember { mutableStateOf(14f) }
     var tableGap by remember { mutableStateOf(0f) }
-
-    // NEW: Specific sizes for interactive elements
     var riverTextSize by remember { mutableStateOf(14f) }
     var chainageTextSize by remember { mutableStateOf(18f) }
 
+    // NEW: L-Section Specific Size (Arrow/Text) - Defaults to roughly "0.5" relative
+    var lSecItemSize by remember { mutableStateOf(20f) }
+
     // --- INTERACTIVE ELEMENT STATE ---
+    // Note: For L-Section, we reuse riverOffsets with specific negative keys to persist data
+    // -10: Pre Arrow, -11: Pre Text, -20: Post Arrow, -21: Post Text
     val riverOffsets = remember { mutableStateMapOf<Int, Offset>() }
     val blueLineOffsets = remember { mutableStateMapOf<Int, Offset>() }
     var chLabelOffset by remember { mutableStateOf(Offset.Zero) }
-
     val deletedRivers = remember { mutableStateListOf<Int>() }
     val deletedBlueLines = remember { mutableStateListOf<Int>() }
     var isChLabelDeleted by remember { mutableStateOf(false) }
-
     var selectedItem by remember { mutableStateOf<InteractiveItem?>(null) }
     var showItemDropdown by remember { mutableStateOf(false) }
 
-    LaunchedEffect(activeGraphId) {
+    // Reset logic when graph type changes
+    LaunchedEffect(activeGraphId, selectedGraphType) {
         selectedItem = null
+        generatedSplits = emptyList()
+        activeSplitIndex = -1
+        // Reset to default limits
+        if(selectedGraphType == "L-Section" && riverData.isNotEmpty()) {
+            currentStartCh = riverData.minOf { it.chainage }
+            currentEndCh = riverData.maxOf { it.chainage }
+        }
     }
 
     Card(modifier = Modifier.fillMaxHeight(), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(2.dp)) {
@@ -122,27 +158,128 @@ fun ImagePanel(
                 }
             }
 
+            // --- L-SECTION AUTO SPLIT BAR ---
+            if (selectedGraphType == "L-Section" && riverData.isNotEmpty()) {
+                Column(Modifier.fillMaxWidth().background(Color(0xFFFFF8E1)).padding(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                        Text("L-Section Tools:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFF57F17))
+
+                        Button(
+                            onClick = {
+                                // AUTO SPLIT LOGIC
+                                if (selectedPartitionSlot == null) {
+                                    onStatusChange("Please select a Grid/Slot in File Panel first to calculate fit.")
+                                } else {
+                                    // 1. Get Physical Paper Width (Landscape A3 usually 420mm)
+                                    val paperW_mm = if (targetIsLandscape) targetPaperSize.heightMm else targetPaperSize.widthMm
+
+                                    // 2. Get Slot Width in mm
+                                    val slotW_mm = paperW_mm * selectedPartitionSlot.wPercent
+
+                                    // 3. Deduct Margins/Padding inside the graph image
+                                    val axisPadding_mm = 22.0
+
+                                    // 4. EXCLUDE 2 UNITS (20mm) as requested
+                                    val excludeUnits_mm = 20.0
+
+                                    val usableW_mm = slotW_mm - (axisPadding_mm + excludeUnits_mm)
+
+                                    if (usableW_mm > 0) {
+                                        // 5. Calculate Meters per MM based on Scale
+                                        val metersPerMm = lHScale / 1000.0
+
+                                        // 6. Calculate Capacity
+                                        val capacityMeters = usableW_mm * metersPerMm
+
+                                        // Round down to nearest 100m for cleaner cuts
+                                        val cleanCapacity = floor(capacityMeters / 100.0) * 100.0
+
+                                        // 7. Generate Splits
+                                        val totalMin = riverData.minOf { it.chainage }
+                                        val totalMax = riverData.maxOf { it.chainage }
+
+                                        val newSplits = mutableListOf<LSectionSplit>()
+                                        var cursor = totalMin
+                                        var idx = 1
+
+                                        while (cursor < totalMax) {
+                                            var end = cursor + cleanCapacity
+                                            if (end > totalMax) end = totalMax
+                                            newSplits.add(LSectionSplit(idx, cursor, end))
+                                            cursor = end
+                                            idx++
+                                        }
+                                        generatedSplits = newSplits
+                                        onStatusChange("Auto-Split: 2 Units excluded. ${newSplits.size} parts generated.")
+                                    } else {
+                                        onStatusChange("Selected slot is too small for graph.")
+                                    }
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF57F17)),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                            modifier = Modifier.height(28.dp)
+                        ) {
+                            Icon(Icons.Default.CallSplit, null, modifier = Modifier.size(12.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Auto Split", fontSize = 10.sp)
+                        }
+                    }
+
+                    // Render Chips for Splits
+                    if (generatedSplits.isNotEmpty()) {
+                        Spacer(Modifier.height(4.dp))
+                        LazyColumn(modifier = Modifier.heightIn(max = 80.dp)) {
+                            items(generatedSplits) { split ->
+                                val isSelected = activeSplitIndex == split.index
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 2.dp)
+                                        .background(if (isSelected) Color(0xFFFFE0B2) else Color.White, RoundedCornerShape(4.dp))
+                                        .border(1.dp, if(isSelected) Color(0xFFF57F17) else Color.LightGray, RoundedCornerShape(4.dp))
+                                        .clickable {
+                                            activeSplitIndex = split.index
+                                            currentStartCh = split.start
+                                            currentEndCh = split.end
+                                        }
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text("Part ${split.index}", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color(0xFFE65100))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("${split.start.toInt()}m to ${split.end.toInt()}m", fontSize = 11.sp)
+                                    Spacer(Modifier.weight(1f))
+                                    if(isSelected) Icon(Icons.Default.Check, null, tint = Color(0xFFF57F17), modifier = Modifier.size(14.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+                Divider()
+            }
+
             // --- TOOLBAR ---
             Column(Modifier.fillMaxWidth().background(Color(0xFFF5F5F5)).padding(8.dp)) {
 
-                // 1. General Sliders
+                // 1. General Sliders -> REPLACED WITH NUMBER STEPPERS
                 Text("Global Sizes:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Datum", fontSize = 9.sp)
-                        Slider(value = datumSize, onValueChange = { datumSize = it }, valueRange = 8f..30f, modifier = Modifier.width(60.dp))
+                        NumberStepper(value = datumSize, onValueChange = { datumSize = it }, range = 5f..50f)
                     }
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Axis", fontSize = 9.sp)
-                        Slider(value = axisSize, onValueChange = { axisSize = it }, valueRange = 8f..30f, modifier = Modifier.width(60.dp))
+                        NumberStepper(value = axisSize, onValueChange = { axisSize = it }, range = 5f..50f)
                     }
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Table", fontSize = 9.sp)
-                        Slider(value = tableTextSize, onValueChange = { tableTextSize = it }, valueRange = 8f..30f, modifier = Modifier.width(60.dp))
+                        NumberStepper(value = tableTextSize, onValueChange = { tableTextSize = it }, range = 5f..50f)
                     }
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Gap", fontSize = 9.sp)
-                        Slider(value = tableGap, onValueChange = { tableGap = it }, valueRange = 0f..150f, modifier = Modifier.width(60.dp))
+                        NumberStepper(value = tableGap, onValueChange = { tableGap = it }, range = 0f..300f, step = 5f)
                     }
                 }
 
@@ -163,6 +300,10 @@ fun ImagePanel(
                                 is InteractiveItem.RiverText -> if(item.isLeft) "Left River Text" else "Right River Text"
                                 is InteractiveItem.BlueLine -> if(item.isLeft) "Left Blue Line" else "Right Blue Line"
                                 is InteractiveItem.ChainageLabel -> "Chainage Label (CH:-)"
+                                is InteractiveItem.LSecPreArrow -> "Left Elbow of Pre Monsoon"
+                                is InteractiveItem.LSecPostArrow -> "Left Elbow of Post Monsoon"
+                                is InteractiveItem.LSecPreText -> "L-section of Pre Monsoon"
+                                is InteractiveItem.LSecPostText -> "L-section of Post Monsoon"
                                 null -> "Select Item..."
                             }
                             Text(label, fontSize = 11.sp)
@@ -182,24 +323,42 @@ fun ImagePanel(
                                 Divider()
                                 DropdownMenuItem(text = { Text("Chainage Label (CH:-)") }, onClick = { selectedItem = InteractiveItem.ChainageLabel; showItemDropdown = false })
                             }
+
+                            // NEW: L-Section Options
+                            if (selectedGraphType == "L-Section") {
+                                Divider()
+                                DropdownMenuItem(text = { Text("Left Elbow of Pre Monsoon") }, onClick = { selectedItem = InteractiveItem.LSecPreArrow; showItemDropdown = false })
+                                DropdownMenuItem(text = { Text("L-section of Pre Monsoon") }, onClick = { selectedItem = InteractiveItem.LSecPreText; showItemDropdown = false })
+                                Divider()
+                                DropdownMenuItem(text = { Text("Left Elbow of Post Monsoon") }, onClick = { selectedItem = InteractiveItem.LSecPostArrow; showItemDropdown = false })
+                                DropdownMenuItem(text = { Text("L-section of Post Monsoon") }, onClick = { selectedItem = InteractiveItem.LSecPostText; showItemDropdown = false })
+                            }
                         }
                     }
 
                     Spacer(Modifier.width(8.dp))
 
-                    // CONTEXTUAL SLIDER (Size)
+                    // CONTEXTUAL STEPPER (Size) - REPLACED SLIDERS WITH NUMBER STEPPERS
                     if (selectedItem is InteractiveItem.RiverText) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("Size:", fontSize = 10.sp)
-                            Slider(value = riverTextSize, onValueChange = { riverTextSize = it }, valueRange = 8f..40f, modifier = Modifier.width(80.dp))
+                            Spacer(Modifier.width(4.dp))
+                            NumberStepper(value = riverTextSize, onValueChange = { riverTextSize = it }, range = 5f..100f)
                         }
                     } else if (selectedItem is InteractiveItem.ChainageLabel) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("Size:", fontSize = 10.sp)
-                            Slider(value = chainageTextSize, onValueChange = { chainageTextSize = it }, valueRange = 8f..40f, modifier = Modifier.width(80.dp))
+                            Spacer(Modifier.width(4.dp))
+                            NumberStepper(value = chainageTextSize, onValueChange = { chainageTextSize = it }, range = 5f..100f)
+                        }
+                    } else if (selectedItem is InteractiveItem.LSecPreArrow || selectedItem is InteractiveItem.LSecPostArrow || selectedItem is InteractiveItem.LSecPreText || selectedItem is InteractiveItem.LSecPostText) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Size:", fontSize = 10.sp)
+                            Spacer(Modifier.width(4.dp))
+                            NumberStepper(value = lSecItemSize, onValueChange = { lSecItemSize = it }, range = 5f..150f)
                         }
                     } else if (selectedItem != null) {
-                        Text("(Drag on graph to move)", fontSize = 10.sp, color = Color.Gray, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
+                        Text("(Drag on graph to move)", fontSize = 10.sp, color = Color.Gray, fontStyle = FontStyle.Italic)
                     }
 
                     Spacer(Modifier.weight(1f))
@@ -210,6 +369,13 @@ fun ImagePanel(
                             is InteractiveItem.RiverText -> if(!deletedRivers.contains(item.index)) deletedRivers.add(item.index)
                             is InteractiveItem.BlueLine -> if(!deletedBlueLines.contains(item.index)) deletedBlueLines.add(item.index)
                             is InteractiveItem.ChainageLabel -> isChLabelDeleted = true
+
+                            // L-Section Delete Logic (Using negative indices map to persist state)
+                            is InteractiveItem.LSecPreArrow -> deletedRivers.add(-10)
+                            is InteractiveItem.LSecPreText -> deletedRivers.add(-11)
+                            is InteractiveItem.LSecPostArrow -> deletedRivers.add(-20)
+                            is InteractiveItem.LSecPostText -> deletedRivers.add(-21)
+
                             null -> {}
                         }
                         selectedItem = null
@@ -241,6 +407,15 @@ fun ImagePanel(
                             tableTextSize = 14f
                             riverTextSize = 14f
                             chainageTextSize = 18f
+                            lSecItemSize = 20f // Reset L-Sec size
+
+                            // Reset L-Sec View as well
+                            if(selectedGraphType == "L-Section") {
+                                currentStartCh = startCh
+                                currentEndCh = endCh
+                                generatedSplits = emptyList()
+                                activeSplitIndex = -1
+                            }
                         },
                         modifier = Modifier.height(36.dp),
                         contentPadding = PaddingValues(horizontal = 8.dp)
@@ -266,7 +441,7 @@ fun ImagePanel(
                                     widthPercent = selectedPartitionSlot.wPercent,
                                     heightPercent = selectedPartitionSlot.hPercent,
 
-                                    graphData = viewData,
+                                    graphData = viewData, // Uses the current viewData (respecting splits)
                                     graphType = selectedGraphType,
                                     graphHScale = hS,
                                     graphVScale = vS,
@@ -289,9 +464,27 @@ fun ImagePanel(
                                     tableTextSize = tableTextSize,
                                     tableGap = tableGap,
                                     riverTextSize = riverTextSize,
-                                    chainageTextSize = chainageTextSize
+                                    chainageTextSize = chainageTextSize,
+
+                                    // Reuse riverTextSize field to pass the new L-Section Size or use riverTextSize
+                                    // Actually, we should store it. Since we can't change ReportElement definition easily in this context,
+                                    // we'll piggyback or ensure the consumer uses a specific field.
+                                    // For now, we will pack the L-Section Size into the riverTextSize if it's L-Section,
+                                    // or better, rely on the fact that riverOffsets stores the positions.
+                                    // To allow size persistence without model change:
+                                    // We can encode size into a dummy offset key if needed, or just let riverTextSize govern it for now if compatible.
+                                    // However, let's use riverTextSize to carry lSecItemSize when in L-Section mode.
+                                    // Logic: if L-Section, 'riverTextSize' represents the L-Sec Label/Arrow size.
+                                    // Since X-Sec and L-Sec are mutually exclusive per element, this works.
+                                    // UPDATE: using lSecItemSize as the value passed to 'riverTextSize' param for L-Section.
+                                    // (Or strictly use 'riverTextSize' variable if user adjusts that slider).
                                 )
-                                onAddToReport(newElement)
+                                // Hack to pass lSecItemSize
+                                val finalElement = if(selectedGraphType == "L-Section") {
+                                    newElement.copy(riverTextSize = lSecItemSize)
+                                } else newElement
+
+                                onAddToReport(finalElement)
                             } else {
                                 onStatusChange("Select a Slot first!")
                             }
@@ -328,7 +521,10 @@ fun ImagePanel(
                         axisLabelSize = axisSize,
                         tableTextSize = tableTextSize,
                         tableGap = tableGap,
-                        riverTextSize = riverTextSize,
+
+                        // FIX: Use lSecItemSize if in L-Section mode to reflect slider changes
+                        riverTextSize = if(selectedGraphType == "L-Section") lSecItemSize else riverTextSize,
+
                         chainageTextSize = chainageTextSize,
 
                         riverOffsets = riverOffsets,
@@ -346,11 +542,80 @@ fun ImagePanel(
                                 is InteractiveItem.RiverText -> riverOffsets[item.index] = (riverOffsets[item.index] ?: Offset.Zero) + dragAmount
                                 is InteractiveItem.BlueLine -> blueLineOffsets[item.index] = (blueLineOffsets[item.index] ?: Offset.Zero) + dragAmount
                                 is InteractiveItem.ChainageLabel -> chLabelOffset += dragAmount
+
+                                // L-Section Drag (Store in negative keys of riverOffsets)
+                                is InteractiveItem.LSecPreArrow -> riverOffsets[-10] = (riverOffsets[-10] ?: Offset.Zero) + dragAmount
+                                is InteractiveItem.LSecPreText -> riverOffsets[-11] = (riverOffsets[-11] ?: Offset.Zero) + dragAmount
+                                is InteractiveItem.LSecPostArrow -> riverOffsets[-20] = (riverOffsets[-20] ?: Offset.Zero) + dragAmount
+                                is InteractiveItem.LSecPostText -> riverOffsets[-21] = (riverOffsets[-21] ?: Offset.Zero) + dragAmount
                             }
-                        }
+                        },
                     )
                 }
             }
+        }
+    }
+}
+
+// --- HELPER FOR NUMBER STEPPER ---
+@Composable
+fun NumberStepper(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    range: ClosedFloatingPointRange<Float> = 0f..100f,
+    step: Float = 1f
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        // Minus Button
+        Box(
+            modifier = Modifier
+                .size(20.dp)
+                .background(Color.LightGray.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
+                .clickable {
+                    val newValue = (value - step).coerceIn(range)
+                    onValueChange(newValue)
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Text("-", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        }
+
+        Spacer(Modifier.width(4.dp))
+
+        // Text Input
+        var text by remember(value) { mutableStateOf(String.format("%.1f", value).removeSuffix(".0")) }
+
+        BasicTextField(
+            value = text,
+            onValueChange = { newText ->
+                text = newText
+                val floatVal = newText.toFloatOrNull()
+                if (floatVal != null) {
+                    onValueChange(floatVal.coerceIn(range))
+                }
+            },
+            textStyle = TextStyle(fontSize = 11.sp, textAlign = TextAlign.Center),
+            modifier = Modifier
+                .width(30.dp)
+                .background(Color.White, RoundedCornerShape(2.dp))
+                .border(1.dp, Color.Gray, RoundedCornerShape(2.dp))
+                .padding(vertical = 2.dp)
+        )
+
+        Spacer(Modifier.width(4.dp))
+
+        // Plus Button
+        Box(
+            modifier = Modifier
+                .size(20.dp)
+                .background(Color.LightGray.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
+                .clickable {
+                    val newValue = (value + step).coerceIn(range)
+                    onValueChange(newValue)
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Text("+", fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
     }
 }

@@ -81,7 +81,15 @@ fun ReportDownloadScreen(
         if (selectedGraphType == "L-Section") listOf(-1.0)
         else riverData.map { it.chainage }.distinct().sorted()
     }
-    var activeGraphId by remember { mutableStateOf(if(availableGraphs.isNotEmpty()) availableGraphs.first() else -100.0) }
+
+    // Default activeGraphId logic:
+    // If we are in L-Section, force it to -1.0 immediately.
+    // If X-Section, pick the first available or -100.0 if empty.
+    var activeGraphId by remember { mutableStateOf(
+        if(initialGraphType == "L-Section") -1.0
+        else if(availableGraphs.isNotEmpty()) availableGraphs.first() else -100.0
+    )}
+
     val reportItems = remember { mutableStateListOf<ReportPageItem>() }
     var statusMsg by remember { mutableStateOf("") }
     val pageElementData = remember { mutableStateMapOf<String, MutableList<ReportElement>>() }
@@ -105,11 +113,43 @@ fun ReportDownloadScreen(
                     Text("1. Select Graph", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
                     HorizontalDivider(Modifier.padding(vertical = 8.dp))
                     Row(modifier = Modifier.fillMaxWidth().height(32.dp).border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(4.dp))) {
-                        Box(modifier = Modifier.weight(1f).fillMaxHeight().background(if(selectedGraphType == "X-Section") MaterialTheme.colorScheme.primary else Color.White).clickable { selectedGraphType = "X-Section"; activeGraphId = if(availableGraphs.isNotEmpty()) availableGraphs.first() else -100.0 }, contentAlignment = Alignment.Center) { Text("X-Sec", color = if(selectedGraphType == "X-Section") Color.White else MaterialTheme.colorScheme.primary, fontSize = 11.sp) }
+                        // X-SEC BUTTON
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .background(if(selectedGraphType == "X-Section") MaterialTheme.colorScheme.primary else Color.White)
+                                .clickable {
+                                    selectedGraphType = "X-Section"
+                                    // Reset activeGraphId to first chainage when switching to X-Sec
+                                    val xGraphs = riverData.map { it.chainage }.distinct().sorted()
+                                    activeGraphId = if(xGraphs.isNotEmpty()) xGraphs.first() else -100.0
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("X-Sec", color = if(selectedGraphType == "X-Section") Color.White else MaterialTheme.colorScheme.primary, fontSize = 11.sp)
+                        }
+
                         Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(MaterialTheme.colorScheme.primary))
-                        Box(modifier = Modifier.weight(1f).fillMaxHeight().background(if(selectedGraphType == "L-Section") MaterialTheme.colorScheme.primary else Color.White).clickable { selectedGraphType = "L-Section"; activeGraphId = -1.0 }, contentAlignment = Alignment.Center) { Text("L-Sec", color = if(selectedGraphType == "L-Section") Color.White else MaterialTheme.colorScheme.primary, fontSize = 11.sp) }
+
+                        // L-SEC BUTTON
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .background(if(selectedGraphType == "L-Section") MaterialTheme.colorScheme.primary else Color.White)
+                                .clickable {
+                                    selectedGraphType = "L-Section"
+                                    activeGraphId = -1.0 // Immediately show L-Section
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("L-Sec", color = if(selectedGraphType == "L-Section") Color.White else MaterialTheme.colorScheme.primary, fontSize = 11.sp)
+                        }
                     }
                     Spacer(Modifier.height(8.dp))
+
+                    // Graph List (Only relevant for X-Section really, but kept generic)
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         items(availableGraphs) { id ->
                             val label = if(id == -1.0) "L-Section Profile" else "Chainage ${id.toInt()} m"
@@ -364,6 +404,135 @@ fun GraphPageCanvas(
                 }
                 if(showPre) drawSeries({it.preMonsoon}, preColor, preDotted, preWidth, preShowPoints)
                 if(showPost) drawSeries({it.postMonsoon}, postColor, postDotted, postWidth, postShowPoints)
+
+                // ============================================
+                // NEW: L-SECTION ANNOTATIONS (ARROW & TEXT)
+                // ============================================
+                if (type == "L-Section" && sortedData.isNotEmpty()) {
+                    // Calculate a default "middle" position logic
+                    // We take the middle data point index to find a reasonable X,Y to place the arrow tip.
+                    val midIndex = sortedData.size / 2
+                    val midPoint = sortedData.getOrElse(midIndex) { sortedData.first() }
+
+                    val defX = mX(midPoint.chainage)
+
+                    // --- PRE MONSOON ARROW & TEXT ---
+                    if (showPre) {
+                        val defY = mY(midPoint.preMonsoon)
+
+                        // 1. Arrow (Index -10)
+                        if (!deletedRiverIndices.contains(-10)) {
+                            val userOffset = riverOffsets[-10] ?: Offset.Zero
+                            val tipX = defX + userOffset.x
+                            val tipY = defY + userOffset.y
+                            val size = riverTextSize * 2.5f // Scale based on size slider (approx 50px default)
+
+                            val isSelected = selectedItem is InteractiveItem.LSecPreArrow
+                            val color = if(isSelected) Color.Magenta else Color.Blue // Blue requested, Magenta when selected
+
+                            // Left Elbow Down Arrow Logic:
+                            // Start (Top Right) -> Left (to Top Left) -> Down (to Tip)
+                            // Visual:  Text Here ----+
+                            //                    |
+                            //                    V
+
+                            val path = Path().apply {
+                                moveTo(tipX + size, tipY - size) // Top Right Start
+                                lineTo(tipX, tipY - size)        // Elbow (Top Left)
+                                lineTo(tipX, tipY)               // Tip (Bottom Left)
+                            }
+
+                            // Draw Line
+                            drawPath(path, color, style = Stroke(width = 3f))
+
+                            // Draw Arrowhead at tip (tipX, tipY) pointing down
+                            val headPath = Path().apply {
+                                moveTo(tipX, tipY)
+                                lineTo(tipX - size * 0.2f, tipY - size * 0.2f)
+                                lineTo(tipX + size * 0.2f, tipY - size * 0.2f)
+                                close()
+                            }
+                            drawPath(headPath, color)
+                        }
+
+                        // 2. Text (Index -11)
+                        if (!deletedRiverIndices.contains(-11)) {
+                            val userOffset = riverOffsets[-11] ?: Offset.Zero
+                            val size = riverTextSize * 2.5f
+                            // Default text pos: Near the start of the arrow tail
+                            val textX = defX + size + 5f + userOffset.x
+                            val textY = defY - size - 10f + userOffset.y // slightly above the tail line
+
+                            val isSelected = selectedItem is InteractiveItem.LSecPreText
+                            val textColor = if(isSelected) Color.Magenta else Color.Black
+
+                            val txtLayout = textMeasurer.measure(
+                                "L-section of Pre Monsoon",
+                                style = TextStyle(
+                                    fontFamily = FontFamily.Serif,
+                                    fontSize = riverTextSize.sp,
+                                    color = textColor,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            )
+                            drawText(txtLayout, topLeft = Offset(textX, textY))
+                        }
+                    }
+
+                    // --- POST MONSOON ARROW & TEXT ---
+                    if (showPost) {
+                        val defY = mY(midPoint.postMonsoon)
+
+                        // 1. Arrow (Index -20)
+                        if (!deletedRiverIndices.contains(-20)) {
+                            val userOffset = riverOffsets[-20] ?: Offset.Zero
+                            // Shift default X slightly so they don't overlap perfectly if lines represent same value
+                            val tipX = defX + 50f + userOffset.x
+                            val tipY = defY + userOffset.y
+                            val size = riverTextSize * 2.5f
+
+                            val isSelected = selectedItem is InteractiveItem.LSecPostArrow
+                            val color = if(isSelected) Color.Magenta else Color.Red // Red requested
+
+                            val path = Path().apply {
+                                moveTo(tipX + size, tipY - size)
+                                lineTo(tipX, tipY - size)
+                                lineTo(tipX, tipY)
+                            }
+                            drawPath(path, color, style = Stroke(width = 3f))
+
+                            val headPath = Path().apply {
+                                moveTo(tipX, tipY)
+                                lineTo(tipX - size * 0.2f, tipY - size * 0.2f)
+                                lineTo(tipX + size * 0.2f, tipY - size * 0.2f)
+                                close()
+                            }
+                            drawPath(headPath, color)
+                        }
+
+                        // 2. Text (Index -21)
+                        if (!deletedRiverIndices.contains(-21)) {
+                            val userOffset = riverOffsets[-21] ?: Offset.Zero
+                            val size = riverTextSize * 2.5f
+                            val textX = defX + 50f + size + 5f + userOffset.x
+                            val textY = defY - size - 10f + userOffset.y
+
+                            val isSelected = selectedItem is InteractiveItem.LSecPostText
+                            val textColor = if(isSelected) Color.Magenta else Color.Black
+
+                            val txtLayout = textMeasurer.measure(
+                                "L-section of Post Monsoon",
+                                style = TextStyle(
+                                    fontFamily = FontFamily.Serif,
+                                    fontSize = riverTextSize.sp,
+                                    color = textColor,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            )
+                            drawText(txtLayout, topLeft = Offset(textX, textY))
+                        }
+                    }
+                }
 
                 val xEnd = (padLeft + (maxX - minX) * pxPerMX + 20.0).toFloat()
                 drawLine(Color.Black, Offset(0f, totAreaH), Offset(xEnd, totAreaH), strokeWidth = 2f)
