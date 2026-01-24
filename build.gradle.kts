@@ -1,6 +1,6 @@
 plugins {
-    kotlin("jvm") version "2.1.0" // Or your current version
-    id("org.jetbrains.compose") version "1.7.0" // The Engine for Desktop UI
+    kotlin("jvm") version "2.1.0"
+    id("org.jetbrains.compose") version "1.7.0"
     id("org.jetbrains.kotlin.plugin.compose") version "2.1.0"
 }
 
@@ -14,7 +14,6 @@ repositories {
 }
 
 dependencies {
-    // This downloads the UI libraries for Windows, Mac, and Linux automatically
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)
     implementation(compose.materialIconsExtended)
@@ -23,11 +22,20 @@ dependencies {
 
 compose.desktop {
     application {
-        mainClass = "MainKt" // Matches your Main.kt file name
+        mainClass = "MainKt"
         nativeDistributions {
             targetFormats(org.jetbrains.compose.desktop.application.dsl.TargetFormat.Dmg, org.jetbrains.compose.desktop.application.dsl.TargetFormat.Msi, org.jetbrains.compose.desktop.application.dsl.TargetFormat.Deb)
             packageName = "LXPlotter"
             packageVersion = "1.0.0"
+
+            windows {
+                menu = true
+                shortcut = true
+                dirChooser = true
+
+                // --- THIS IS THE NEW LINE FOR YOUR ICON ---
+                iconFile.set(project.file("src/main/resources/logo.ico"))
+            }
         }
     }
 }

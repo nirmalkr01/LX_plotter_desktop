@@ -1,115 +1,109 @@
 # LX Plotter Desktop
 
-LX Plotter Desktop is a Kotlin-based desktop application for plotting, visualizing, and managing graphical data with a modular UI architecture.
+**LX Plotter Desktop** is a Kotlin-based engineering application designed for plotting, visualizing, and managing hydraulic river data. It bridges the gap between raw CSV survey data and professional engineering reports with a modular UI architecture.
 
-The project is built using **Kotlin + Gradle** and follows a structured separation of concerns between UI components, logic, and models.
+The project is built using **Compose for Desktop (Kotlin + Gradle)** and follows a structured separation of concerns between UI components, logic, and models.
 
----
-
-## 📁 Project Structure
-
-LX_plotter_desktop/
-│
-├── src/main/kotlin/
-│ ├── Main.kt # Application entry point
-│ ├── Logic.kt # Core business logic
-│ ├── Models.kt # Data models
-│ ├── Graph.kt # Graph plotting logic
-│ ├── ImagePanel.kt # Image rendering panel
-│ ├── FilePanel.kt # File explorer UI
-│ ├── FilePanelUI.kt # File panel UI layout
-│ ├── FilePanelTools.kt # File tools
-│ ├── FilePanelComponents.kt # File UI components
-│ ├── ElementBox.kt # UI element container
-│ ├── Components.kt # Reusable UI components
-│ ├── PageLayout.kt # Layout manager
-│ ├── PartitionLogic.kt # Data partitioning logic
-│ ├── SelectTool.kt # Selection tool
-│ ├── Download.kt # Download functionality
-│ └── ReportDownloadUI.kt # Report download UI
-│
-├── build/ # Gradle build output
-├── .gradle/ # Gradle cache
-└── README.md
-
+> ⚠️ **Development Status**: The PDF Report Download feature is currently in **Beta**. You may encounter minor rendering issues or incomplete exports as this module is under active development.
 
 ---
 
 ## 🚀 Features
 
-- Modular UI design
-- Graph plotting and visualization
-- File management panel
-- Image rendering support
-- Data partitioning logic
-- Report export / download
-- Clean separation of:
-    - UI
-    - Logic
-    - Models
+* **Engineering-Grade Plotting**: Dynamic coordinate mapping for River X-Sections and L-Sections.
+* **Modular UI Design**: Clean separation of File Explorer, Image Panel, and Graphing Canvas.
+* **Interactive Editing**: Drag-and-drop support for text labels ("RIVER"), hydraulic lines, and annotations.
+* **Data Partitioning**: Logic to automatically split long profiles into printable segments.
+* **Report Designer**: Grid-based layout system for creating multi-page engineering reports.
+* **File Management**: Integrated file explorer for quick access to survey data.
 
 ---
 
 ## 🛠️ Tech Stack
 
-- **Language:** Kotlin
-- **Build Tool:** Gradle
-- **IDE:** IntelliJ IDEA (recommended)
-- **Platform:** Desktop (JVM)
+* **Language**: Kotlin
+* **UI Framework**: Compose for Desktop (Jetpack Compose)
+* **Build Tool**: Gradle 8.x
+* **PDF Engine**: Apache PDFBox
+* **IDE**: IntelliJ IDEA (Recommended)
+* **Platform**: Windows / macOS / Linux (JVM)
 
 ---
 
-## ▶️ How to Run
+## 🏗️ Installation & Setup
 
-### Using IntelliJ IDEA
-1. Open the project in IntelliJ.
-2. Let Gradle sync.
-3. Run `Main.kt`.
+### 1. Prerequisites
+Before running or building the project, ensure you have:
+* **JDK 17** or higher installed.
+* **IntelliJ IDEA** (Community or Ultimate) is recommended for development.
 
-### Using Command Line
+### 2. Run in Development Mode
+To run the application directly from the source code:
+
+**Using IntelliJ IDEA:**
+1.  Open the project folder in IntelliJ.
+2.  Wait for Gradle to sync dependencies.
+3.  Navigate to `src/main/kotlin/Main.kt` and click the **Run** (▶) button.
+
+**Using Command Line:**
 ```bash
-gradlew run
-(On Windows)
-
+# Windows
 gradlew.bat run
-📦 Build Project
-gradlew build
-The output will be in:
 
-build/
-🧹 .gitignore
-This project ignores:
+# Mac/Linux
+./gradlew run
+3. Create a Standalone Installer (Windows MSI)
+To package the application into an installable file (.msi) for distribution:
 
-Gradle build files
+Open your terminal in the project root directory.
 
-IntelliJ configs
+Run the packaging task:
 
-VS Code configs
+Bash
+gradlew packageMsi
+(Note: This process may take a few minutes as it downloads necessary binaries).
 
-OS junk files
+Locate the Installer: Once the build is successful, navigate to: LX_plotter_desktop/build/compose/binaries/main/msi/
 
-So your repo stays clean and lightweight.
+Install: Double-click the LXPlotter-1.0.0.msi file to install the app on your machine. It will appear in your Start Menu and Desktop shortcuts.
 
-📌 Notes
-All main source files are inside:
+📁 Project Structure
+Plaintext
+LX_plotter_desktop/
+│
+├── src/main/kotlin/
+│   ├── Main.kt                 # Application entry point
+│   ├── Logic.kt                # Core business logic & Data Processing
+│   ├── Models.kt               # Data classes (RiverPoint, etc.)
+│   ├── Graph.kt                # Core engineering graph plotting logic
+│   ├── ImagePanel.kt           # Interactive rendering & editing panel
+│   ├── FilePanel.kt            # File explorer & Page management UI
+│   ├── FilePanelUI.kt          # Ribbon & Toolbar UI layouts
+│   ├── FilePanelTools.kt       # Helper tools for the file panel
+│   ├── FilePanelComponents.kt  # UI components for file operations
+│   ├── ElementBox.kt           # Draggable UI element container
+│   ├── Components.kt           # Reusable shared UI widgets
+│   ├── PageLayout.kt           # Standard Engineering Footer/Header layout
+│   ├── PartitionLogic.kt       # Algorithms for splitting graphs across pages
+│   ├── SelectTool.kt           # Logic for selection & group operations
+│   ├── Download.kt             # PDF Generation logic (PDFBox)
+│   └── ReportDownloadUI.kt     # Main Report Designer Screen
+│
+├── src/main/resources/         # Assets (Icons, Images)
+├── build/                      # Gradle build output (Installers live here)
+├── .gradle/                    # Gradle cache
+└── README.md                   # Project Documentation
+🧹 .gitignore Rules
+To keep the repository clean and lightweight, the following files are ignored:
 
-src/main/kotlin/
-Entry point:
+Gradle build artifacts (build/, .gradle/)
 
-Main.kt
-UI is component-driven and modular.
+IntelliJ/IDE configuration files (.idea/, *.iml)
 
-Logic is separated for easy maintenance and testing.
+OS-specific system files (.DS_Store)
 
 👨‍💻 Author
-Nirmal Kumar
-Computer Science Engineer
-Kotlin | Desktop Apps | Systems & Tools
+Nirmal Kumar Computer Science Engineer Kotlin | Desktop Apps | Systems & Tools
 
 📄 License
-This project is for educational and experimental use.
-You may modify and extend it freely.
-
-
----
-
+This project is for educational and experimental use. You may modify and extend it freely.

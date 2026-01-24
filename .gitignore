@@ -43,3 +43,11 @@ bin/
 
 ### Mac OS ###
 .DS_Store
+
+### Installers and Distributables ###
+# Explicitly ignore installer files to prevent accidental pushes
+*.msi
+*.exe
+*.dmg
+*.deb
+*.rpm
