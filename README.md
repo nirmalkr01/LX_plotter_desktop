@@ -113,9 +113,3 @@ You may modify and extend it freely.
 
 ---
 
-### Pro Tip (since you're a dev 😄)
-
-You can auto-generate this file from CMD:
-
-```bat
-notepad README.md
