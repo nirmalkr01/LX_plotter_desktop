@@ -24,6 +24,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.io.File
 
+// --- DATA CLASS FOR ERRORS ---
+data class DataError(val chainage: Double, val offset: Double, val pre: Double, val post: Double)
+
 // --- HELPER FOR CUSTOM BORDERS ---
 fun Modifier.customBorder(
     width: Dp,
@@ -44,6 +47,8 @@ fun Modifier.customBorder(
 @Composable
 fun AppHeader(
     status: String,
+    errors: List<DataError>,
+    onNavigateToError: (Double) -> Unit,
     onLoad: () -> Unit,
     onDownloadCsv: () -> Unit,
     onGenerateReport: () -> Unit,
@@ -69,8 +74,13 @@ fun AppHeader(
                 Text(status, fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
             }
 
-            // Buttons Order: Load -> Download Menu -> Instruction
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+
+                // --- NOTIFICATION ICON ---
+                NotificationSection(errors, onNavigateToError)
+
+                VerticalDivider(Modifier.height(24.dp).padding(horizontal = 4.dp))
+
                 // 1. Load
                 Button(onClick = onLoad, contentPadding = PaddingValues(horizontal = 12.dp), shape = RoundedCornerShape(8.dp)) {
                     Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
@@ -86,7 +96,6 @@ fun AppHeader(
                         Text("Download")
                     }
                     DropdownMenu(expanded = showDownloadMenu, onDismissRequest = { showDownloadMenu = false }) {
-                        // Removed Graph Option
                         DropdownMenuItem(
                             text = { Text("Report") },
                             leadingIcon = { Icon(Icons.Default.Description, null) },
@@ -109,7 +118,62 @@ fun AppHeader(
     }
 }
 
-// ... (Rest of Components.kt remains unchanged from previous versions, essentially the CsvMappingDialog and Table code) ...
+@Composable
+fun NotificationSection(errors: List<DataError>, onNavigate: (Double) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val hasErrors = errors.isNotEmpty()
+
+    Box {
+        IconButton(onClick = { if (hasErrors) expanded = true }) {
+            BadgedBox(
+                badge = {
+                    if (hasErrors) {
+                        Badge(containerColor = Color.Red) {
+                            Text(errors.size.toString(), color = Color.White)
+                        }
+                    }
+                }
+            ) {
+                Icon(
+                    imageVector = if (hasErrors) Icons.Default.NotificationsActive else Icons.Default.Notifications,
+                    contentDescription = "Notifications",
+                    tint = if (hasErrors) Color.Red else MaterialTheme.colorScheme.onPrimaryContainer
+                )
+            }
+        }
+
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.width(300.dp).heightIn(max = 400.dp)
+        ) {
+            Text(
+                "Data Inconsistencies (Pre > Post)",
+                modifier = Modifier.padding(12.dp),
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+                color = Color.Red
+            )
+            HorizontalDivider()
+            errors.forEach { error ->
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text("Chainage: ${error.chainage}m", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text("Offset: ${error.offset}m (Pre: ${error.pre} > Post: ${error.post})", fontSize = 11.sp)
+                        }
+                    },
+                    leadingIcon = { Icon(Icons.Default.ErrorOutline, null, tint = Color.Red) },
+                    onClick = {
+                        onNavigate(error.chainage)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
+}
+
 // --- CSV MAPPING DIALOG ---
 @Composable
 fun CsvMappingDialog(
@@ -118,7 +182,6 @@ fun CsvMappingDialog(
     onDismiss: () -> Unit,
     onConfirm: (Map<String, Int>) -> Unit
 ) {
-    // Try to auto-guess initial indices based on common names
     var chainageIdx by remember { mutableStateOf(headers.indexOfFirst { it.contains("chain", ignoreCase = true) }.let { if(it == -1) 0 else it }) }
     var distIdx by remember { mutableStateOf(headers.indexOfFirst { it.contains("dist", ignoreCase = true) || it.contains("offset", ignoreCase = true) }.let { if(it == -1) 1 else it }) }
     var preIdx by remember { mutableStateOf(headers.indexOfFirst { it.contains("pre", ignoreCase = true) }.let { if(it == -1) 2 else it }) }
@@ -132,7 +195,6 @@ fun CsvMappingDialog(
                 Text("Select which column corresponds to each required field:", fontSize = 13.sp, color = Color.Gray)
                 Spacer(Modifier.height(16.dp))
 
-                // Selectors
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Column(Modifier.weight(1f)) {
                         Text("Chainage", fontWeight = FontWeight.Bold, fontSize = 12.sp)
@@ -161,16 +223,12 @@ fun CsvMappingDialog(
                 Text("File Preview (First 5 Rows):", fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 Spacer(Modifier.height(8.dp))
 
-                // Simple Table Preview
                 Column(Modifier.border(1.dp, Color.LightGray).fillMaxWidth()) {
-                    // Header Row
                     Row(Modifier.background(Color.LightGray.copy(alpha=0.3f)).padding(4.dp)) {
                         headers.forEach { h -> Text(h, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 1) }
                     }
-                    // Data Rows
                     previewRows.take(5).forEach { row ->
                         Row(Modifier.border(0.5.dp, Color.LightGray.copy(alpha=0.3f)).padding(4.dp)) {
-                            // Ensure row has cells even if empty
                             for(i in headers.indices) {
                                 val txt = if(i < row.size) row[i] else ""
                                 Text(txt, fontSize = 10.sp, modifier = Modifier.weight(1f), maxLines = 1)
@@ -225,50 +283,64 @@ fun ColumnSelector(options: List<String>, selectedIdx: Int, onSelect: (Int) -> U
 fun InstructionDialog(onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("App Instructions & Logic", fontWeight = FontWeight.Bold) },
+        title = { Text("Complete Application Walkthrough", fontWeight = FontWeight.Bold) },
         text = {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(400.dp) // Fixed height for scrolling
+                    .height(450.dp)
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // 1. App Workflow
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("1. How to Use", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
-                    Text("• Load CSV: Use 'Load' button. You will see a column mapping window to select your specific CSV headers.", fontSize = 13.sp)
-                    Text("• Navigation: Use the Ribbon to switch between X-Section and L-Section views.", fontSize = 13.sp)
-                    Text("• L-Section: This view is read-only. It is derived from the X-Section data.", fontSize = 13.sp)
+                    Text("Step 1: Loading Data", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
+                    Text("• Click the 'Load' button in the top header.", fontSize = 13.sp)
+                    Text("• Select your CSV file. A mapping window will appear.", fontSize = 13.sp)
+                    Text("• Use the dropdowns to match your CSV headers to 'Chainage', 'Offset', and 'Monsoon Levels'.", fontSize = 13.sp)
+                    Text("• Check the preview table to ensure data looks correct, then click 'Confirm Load'.", fontSize = 13.sp)
                 }
 
                 HorizontalDivider()
 
-                // 2. Manual Mode Logic
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("2. Manual Mode & Editing (X-Section Only)", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
-                    Text("• Enable: Check 'Manual Mode' in the Data Table header (Only available in X-Section view).", fontSize = 13.sp)
-                    Text("• Edit Values: Click any Pre/Post cell to type new values. The graph and auto-thalweg will update instantly.", fontSize = 13.sp)
-                    Text("• Set Zero (Offset):", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                    Text("  - Auto Mode: Uses Thalweg (Deepest Point) or Center logic based on current values.", fontSize = 13.sp)
-                    Text("  - Manual Override: Click 'Set 0' on a row to force that point as 0. This disables auto-move for offset.", fontSize = 13.sp)
-                    Text("  - Revert: Click the red 'ZERO (M)' label to remove the override and return to Auto logic.", fontSize = 13.sp)
+                    Text("Step 2: Analysis & Style", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
+                    Text("• Switch between X-Section and L-Section using the top ribbon.", fontSize = 13.sp)
+                    Text("• Use the 'Style' tab to change colors, thickness, or toggle dotted lines for Pre/Post series.", fontSize = 13.sp)
+                    Text("• Check notifications (Bell icon) for any Pre-Monsoon levels that are higher than Post-Monsoon.", fontSize = 13.sp)
+                    Text("• Edit values directly in the bottom table by enabling 'Manual Mode'.", fontSize = 13.sp)
                 }
 
                 HorizontalDivider()
 
-                // 3. Technical Logic
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("3. Technical Logic", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
-                    Text("• Graph to Ground: Real Value = Measured Unit × Scale.", fontSize = 13.sp)
-                    Text("• Thalweg Logic: Finds the lowest Pre-Monsoon elevation. Sets offset 0 at this point.", fontSize = 13.sp)
-                    Text("• Center Logic: Finds the middle data point index. Sets offset 0 there.", fontSize = 13.sp)
-                    Text("• Grid & Ruler: These are static overlays matching real-world cm/mm on paper, independent of the graph data.", fontSize = 13.sp)
+                    Text("Step 3: Preparing the Layout", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
+                    Text("• Click 'Download' -> 'Report' to enter the Designer Screen.", fontSize = 13.sp)
+                    Text("• In the designer, create pages using the '+' button at the bottom.", fontSize = 13.sp)
+                    Text("• Enable 'Grid Mode' (Blue chip at the top) to see available slots on the paper.", fontSize = 13.sp)
+                    Text("• Select a graph from the left list, click an empty slot on the page, and press 'Add to Slot'.", fontSize = 13.sp)
+                }
+
+                HorizontalDivider()
+
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Step 4: Interactive Customization", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
+                    Text("• Inside the 'Image View', use the 'Select Element' dropdown to pick 'RIVER' text or 'Blue Lines'.", fontSize = 13.sp)
+                    Text("• Drag the elements directly on the preview graph to position them (e.g., move bank indicators).", fontSize = 13.sp)
+                    Text("• For L-Sections, use 'Auto Split' to automatically divide long river profiles into multiple printable slots.", fontSize = 13.sp)
+                }
+
+                HorizontalDivider()
+
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Step 5: Annotation & Final PDF", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
+                    Text("• Use 'Insert & Text' tab to add manual notes, arrows, or shapes to your report pages.", fontSize = 13.sp)
+                    Text("• Set Global Header info (Annexure, B1 Text) and apply it to all pages at once.", fontSize = 13.sp)
+                    Text("• Finally, click the red 'Export PDF' button. Choose a save location and the app will generate and open your final multi-page engineering document.", fontSize = 13.sp)
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } }
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Got it!") } }
     )
 }
 
@@ -337,16 +409,14 @@ fun CompactDataTable(
 ) {
     val scrollState = rememberScrollState()
     val isLSection = type == "L-Section"
-    val canEdit = isManualMode && !isLSection // Disable editing in L-Section
+    val canEdit = isManualMode && !isLSection
 
     Row(
-        modifier = Modifier.fillMaxWidth().height(150.dp).border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(4.dp)).background(Color.White, RoundedCornerShape(4.dp))
+        modifier = Modifier.fillMaxWidth().height(182.dp).border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(4.dp)).background(Color.White, RoundedCornerShape(4.dp))
     ) {
-        // Fixed Header Column
         Column(
             modifier = Modifier.width(160.dp).fillMaxHeight().background(MaterialTheme.colorScheme.surfaceContainerLow).customBorder(1.dp, MaterialTheme.colorScheme.outlineVariant, end = true).padding(bottom = 12.dp)
         ) {
-            // Manual Mode Toggle Cell
             Box(
                 modifier = Modifier.fillMaxWidth().height(32.dp).customBorder(0.5.dp, Color.LightGray.copy(alpha = 0.5f), bottom = true).background(Color.LightGray.copy(alpha = 0.2f)),
                 contentAlignment = Alignment.CenterStart
@@ -354,7 +424,7 @@ fun CompactDataTable(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(
                         checked = isManualMode,
-                        onCheckedChange = if (!isLSection) onManualModeToggle else null, // Disable checkbox action in L-Section
+                        onCheckedChange = if (!isLSection) onManualModeToggle else null,
                         enabled = !isLSection,
                         modifier = Modifier.scale(0.7f)
                     )
@@ -368,22 +438,23 @@ fun CompactDataTable(
             }
             HeaderCell("Post Monsoon:", postColor)
             HeaderCell("Pre Monsoon:", preColor)
+            HeaderCell("Difference:", Color(0xFF616161))
             HeaderCell(if (isLSection) "Chainage in mt:" else "Offset in mt:", Color.Black)
         }
 
-        // Scrollable Data Area
         Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
             Row(modifier = Modifier.fillMaxSize().horizontalScroll(scrollState)) {
                 data.forEach { point ->
+                    val diff = point.postMonsoon - point.preMonsoon
+                    val isError = point.preMonsoon > point.postMonsoon
+
                     Column(modifier = Modifier.width(90.dp).fillMaxHeight()) {
-                        // Top Cell: Set Zero / Reset Zero
                         Box(
                             modifier = Modifier.fillMaxWidth().height(32.dp).customBorder(0.5.dp, Color.LightGray.copy(alpha = 0.5f), bottom = true, start = true).background(Color.LightGray.copy(alpha = 0.2f)),
                             contentAlignment = Alignment.Center
                         ) {
                             if (point.isZeroPoint) {
                                 if (hasManualZero) {
-                                    // It's a Manual Zero -> Click to Reset (Only if editable)
                                     if(canEdit) {
                                         TextButton(onClick = onResetZero, contentPadding = PaddingValues(0.dp)) {
                                             Text("ZERO (M)", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Red)
@@ -392,26 +463,23 @@ fun CompactDataTable(
                                         Text("ZERO (M)", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.Red)
                                     }
                                 } else {
-                                    // It's Auto Zero
                                     Text("ZERO (A)", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF006400))
                                 }
                             } else if (canEdit) {
-                                // Allow setting this as zero
                                 TextButton(onClick = { onSetZero(point.id) }, contentPadding = PaddingValues(0.dp)) {
                                     Text("Set 0", fontSize = 9.sp)
                                 }
                             }
                         }
 
-                        // Editable Cells
-                        EditableDataCell(String.format("%.2f", point.postMonsoon), postColor, canEdit) { newVal ->
+                        EditableDataCell(String.format("%.2f", point.postMonsoon), postColor, canEdit, isError) { newVal ->
                             newVal.toDoubleOrNull()?.let { onUpdateValue(point.id, point.preMonsoon, it) }
                         }
-                        EditableDataCell(String.format("%.2f", point.preMonsoon), preColor, canEdit) { newVal ->
+                        EditableDataCell(String.format("%.2f", point.preMonsoon), preColor, canEdit, isError) { newVal ->
                             newVal.toDoubleOrNull()?.let { onUpdateValue(point.id, it, point.postMonsoon) }
                         }
 
-                        // Offset (Not directly editable, result of set zero)
+                        DataCell(String.format("%.2f", diff), if (isError) Color.Red else Color.Black)
                         DataCell(String.format("%.1f", if (isLSection) point.chainage else point.distance), if (point.isZeroPoint) Color.Red else Color.Black)
                     }
                 }
@@ -422,7 +490,7 @@ fun CompactDataTable(
 }
 
 @Composable
-fun EditableDataCell(text: String, color: Color, isEditable: Boolean, onCommit: (String) -> Unit) {
+fun EditableDataCell(text: String, color: Color, isEditable: Boolean, highlightError: Boolean = false, onCommit: (String) -> Unit) {
     var isEditing by remember { mutableStateOf(false) }
     var tempText by remember { mutableStateOf(text) }
 
@@ -430,13 +498,15 @@ fun EditableDataCell(text: String, color: Color, isEditable: Boolean, onCommit: 
         if (!isEditing) tempText = text
     }
 
-    // Force stop editing if mode changes to disabled
     LaunchedEffect(isEditable) {
         if (!isEditable) isEditing = false
     }
 
     Box(
-        modifier = Modifier.fillMaxWidth().height(32.dp).customBorder(0.5.dp, Color.LightGray.copy(alpha = 0.5f), bottom = true, start = true).background(Color.Transparent).clickable(enabled = isEditable) { isEditing = true },
+        modifier = Modifier.fillMaxWidth().height(32.dp)
+            .customBorder(0.5.dp, Color.LightGray.copy(alpha = 0.5f), bottom = true, start = true)
+            .background(if (highlightError) Color.Red.copy(alpha = 0.1f) else Color.Transparent)
+            .clickable(enabled = isEditable) { isEditing = true },
         contentAlignment = Alignment.Center
     ) {
         if (isEditing) {
@@ -478,7 +548,6 @@ fun DataCell(text: String, color: Color, isTop: Boolean = false) {
     }
 }
 
-// --- UTILS ---
 @Composable
 fun StyleSelector(
     label: String,
@@ -493,48 +562,27 @@ fun StyleSelector(
 ) {
     var expandedColor by remember { mutableStateOf(false) }
     var expandedThickness by remember { mutableStateOf(false) }
-
     val colors = listOf(Color.Red, Color.Blue, Color(0xFF006400), Color.Black, Color.Magenta, Color.Cyan)
     val thicknessOptions = listOf(1f, 2f, 3f, 5f, 8f)
-
     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(end = 12.dp)) {
         Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(end = 8.dp))
-
-        // Color Picker
         Box {
-            Box(
-                modifier = Modifier.size(20.dp).background(color, androidx.compose.foundation.shape.CircleShape)
-                    .border(1.dp, Color.Gray, androidx.compose.foundation.shape.CircleShape).clickable { expandedColor = true }
-            )
+            Box(modifier = Modifier.size(20.dp).background(color, androidx.compose.foundation.shape.CircleShape).border(1.dp, Color.Gray, androidx.compose.foundation.shape.CircleShape).clickable { expandedColor = true })
             DropdownMenu(expanded = expandedColor, onDismissRequest = { expandedColor = false }) {
-                colors.forEach { c ->
-                    DropdownMenuItem(text = { Box(Modifier.size(20.dp).background(c, androidx.compose.foundation.shape.CircleShape)) }, onClick = { onColorChange(c); expandedColor = false })
-                }
+                colors.forEach { c -> DropdownMenuItem(text = { Box(Modifier.size(20.dp).background(c, androidx.compose.foundation.shape.CircleShape)) }, onClick = { onColorChange(c); expandedColor = false }) }
             }
         }
         Spacer(Modifier.width(8.dp))
-
-        // Dotted Toggle
-        OutlinedButton(onClick = { onDottedChange(!isDotted) }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp), modifier = Modifier.height(28.dp), shape = RoundedCornerShape(4.dp)) {
-            Text(if (isDotted) "Dotted" else "Solid", fontSize = 10.sp)
-        }
+        OutlinedButton(onClick = { onDottedChange(!isDotted) }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp), modifier = Modifier.height(28.dp), shape = RoundedCornerShape(4.dp)) { Text(if (isDotted) "Dotted" else "Solid", fontSize = 10.sp) }
         Spacer(Modifier.width(8.dp))
-
-        // Thickness
         Box {
-            OutlinedButton(onClick = { expandedThickness = true }, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp), modifier = Modifier.height(28.dp), shape = RoundedCornerShape(4.dp)) {
-                Text("${thickness.toInt()}px", fontSize = 10.sp)
-            }
+            OutlinedButton(onClick = { expandedThickness = true }, contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp), modifier = Modifier.height(28.dp), shape = RoundedCornerShape(4.dp)) { Text("${thickness.toInt()}px", fontSize = 10.sp) }
             DropdownMenu(expanded = expandedThickness, onDismissRequest = { expandedThickness = false }) {
                 thicknessOptions.forEach { t -> DropdownMenuItem(text = { Text("${t.toInt()}px", fontSize = 12.sp) }, onClick = { onThicknessChange(t); expandedThickness = false }) }
             }
         }
         Spacer(Modifier.width(8.dp))
-
-        // Dot Marker
-        IconToggleButton(checked = showPoints, onCheckedChange = onShowPointsChange, modifier = Modifier.size(28.dp)) {
-            Icon(if (showPoints) Icons.Default.Circle else Icons.Default.Lens, contentDescription = "Toggle Points", tint = if (showPoints) color else Color.Gray, modifier = Modifier.size(16.dp))
-        }
+        IconToggleButton(checked = showPoints, onCheckedChange = onShowPointsChange, modifier = Modifier.size(28.dp)) { Icon(if (showPoints) Icons.Default.Circle else Icons.Default.Lens, contentDescription = "Toggle Points", tint = if (showPoints) color else Color.Gray, modifier = Modifier.size(16.dp)) }
     }
 }
 

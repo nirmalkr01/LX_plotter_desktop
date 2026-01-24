@@ -10,7 +10,8 @@ fun getCurrentViewData(allData: List<RiverPoint>, type: String, chainage: Double
     return if (type == "L-Section") {
         val lSecData = allData.groupBy { it.chainage }
             .map { (_, pts) ->
-                // For L-Section, closest point to 0 offset (which is derived from Thalweg or Center)
+                // For L-Section, we pick the point where distance is 0.0
+                // processAndCenterData guarantees one point per chainage has 0.0 offset
                 pts.minByOrNull { abs(it.distance) } ?: pts.first()
             }
             .sortedBy { it.chainage }
@@ -30,16 +31,17 @@ fun processAndCenterData(
     val finalPoints = mutableListOf<RiverPoint>()
 
     for ((chainage, points) in grouped) {
-        // 1. Sort by original distance (ascending)
-        val sortedPoints = points.sortedBy { it.distance }
+        // 1. Sort by original distance (ascending) to maintain bank order
+        val sortedPoints = points.distinctBy { it.distance }.sortedBy { it.distance }
 
-        // 2. Determine the "Zero" Index
+        // 2. Determine the "Zero" Index based on current values
         val zeroIndex: Int = if (manualZeroOverrides.containsKey(chainage)) {
+            // Priority 1: Manual Override
             val overrideId = manualZeroOverrides[chainage]
             val foundIndex = sortedPoints.indexOfFirst { it.id == overrideId }
-            if (foundIndex != -1) foundIndex else 0 // Fallback
+            if (foundIndex != -1) foundIndex else 0
         } else if (useThalweg) {
-            // MODIFIED THALWEG LOGIC
+            // Priority 2: Thalweg (Deepest Pre-Monsoon Point)
             if (sortedPoints.isEmpty()) {
                 0
             } else {
@@ -47,35 +49,37 @@ fun processAndCenterData(
                 val minIndices = sortedPoints.mapIndexedNotNull { index, point ->
                     if (point.pre == minPre) index else null
                 }
+                // Pick the middle one if multiple points have same depth
                 minIndices[minIndices.size / 2]
             }
         } else {
-            // Case 7.1: Without Thalweg (Center)
+            // Priority 3: Center Logic
             val size = sortedPoints.size
             if (size % 2 != 0) {
                 size / 2
             } else {
                 val mid1 = (size / 2) - 1
                 val mid2 = size / 2
+                // Pick deeper of the two middle points
                 if (sortedPoints[mid1].pre <= sortedPoints[mid2].pre) mid1 else mid2
             }
         }
 
-        // 3. Get the reference distance
+        // 3. Get the reference distance of the point identified as 0
         val refDistance = if(sortedPoints.isNotEmpty()) sortedPoints[zeroIndex].distance else 0.0
 
-        // 4. Calculate new distances
+        // 4. Calculate new relative offsets (Distances)
         for (p in sortedPoints) {
             val newDist = p.distance - refDistance
-            val cleanDist = round(newDist * 100) / 100.0
+            val cleanDist = round(newDist * 100) / 100.0 // 2 decimal precision
 
             finalPoints.add(RiverPoint(
                 id = p.id,
                 chainage = p.chainage,
-                distance = cleanDist,
+                distance = cleanDist,       // This is the shifted zero-based offset
                 preMonsoon = p.pre,
                 postMonsoon = p.post,
-                originalDistance = p.distance,
+                originalDistance = p.distance, // Keep for data integrity
                 isZeroPoint = (p.id == sortedPoints[zeroIndex].id)
             ))
         }
@@ -85,9 +89,8 @@ fun processAndCenterData(
 
 // --- CSV HELPERS FOR MAPPING ---
 
-// 1. Just read the headers and first few rows for preview
 fun readCsvPreview(file: File): Pair<List<String>, List<List<String>>> {
-    val lines = file.readLines().take(6) // Header + 5 rows
+    val lines = file.readLines().take(6)
     if (lines.isEmpty()) return Pair(emptyList(), emptyList())
 
     val headers = lines[0].split(",").map { it.trim() }
@@ -97,7 +100,6 @@ fun readCsvPreview(file: File): Pair<List<String>, List<List<String>>> {
     return Pair(headers, rows)
 }
 
-// 2. Parse using specific indices
 fun parseCsvMapped(file: File, colIndices: Map<String, Int>): Pair<List<RawRiverPoint>, String?> {
     val idxChain = colIndices["chainage"] ?: -1
     val idxDist = colIndices["distance"] ?: -1
@@ -110,12 +112,10 @@ fun parseCsvMapped(file: File, colIndices: Map<String, Int>): Pair<List<RawRiver
     val lines = file.readLines()
     val data = mutableListOf<RawRiverPoint>()
 
-    // Start from 1 to skip header
     for (i in 1 until lines.size) {
         val tokens = lines[i].split(",").map { it.trim() }
         try {
-            // Ensure the line has enough columns for the max index we need
-            val maxIdx = max(max(idxChain, idxDist), max(idxPre, idxPost))
+            val maxIdx = maxOf(idxChain, idxDist, idxPre, idxPost)
             if (tokens.size > maxIdx) {
                 data.add(RawRiverPoint(
                     chainage = tokens[idxChain].toDouble(),
@@ -124,9 +124,7 @@ fun parseCsvMapped(file: File, colIndices: Map<String, Int>): Pair<List<RawRiver
                     post = tokens[idxPost].toDouble()
                 ))
             }
-        } catch (e: Exception) {
-            // Skip bad rows silently or log
-        }
+        } catch (e: Exception) { }
     }
     return Pair(data, null)
 }

@@ -97,12 +97,26 @@ fun ReportDownloadScreen(
     var selectedPartition by remember { mutableStateOf<PartitionSlot?>(null) }
     var isPartitionModeEnabled by remember { mutableStateOf(false) }
 
+    // Zoom state for report download screen preview (also starts at 60% if desired, or 100%)
+    var reportPreviewZoom by remember { mutableStateOf(0.6f) }
+
     Column(modifier = Modifier.fillMaxSize().background(Color(0xFFF0F0F0))) {
         Surface(shadowElevation = 2.dp, color = MaterialTheme.colorScheme.surface) {
             Row(modifier = Modifier.fillMaxWidth().height(50.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
                 Spacer(Modifier.width(16.dp))
                 Text("Report Download Center", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+
+                // Add zoom controls here as well if needed, or keep it fixed.
+                // Assuming "Main Page" refers to the initial screen with the full editor.
+                // If this screen needs zoom, we can add it:
+                /*
+                Spacer(Modifier.width(16.dp))
+                IconButton(onClick = { reportPreviewZoom = (reportPreviewZoom - 0.1f).coerceAtLeast(0.2f) }) { Icon(Icons.Default.ZoomOut, "Out") }
+                Text("${(reportPreviewZoom * 100).toInt()}%", fontSize = 12.sp)
+                IconButton(onClick = { reportPreviewZoom = (reportPreviewZoom + 0.1f).coerceAtMost(5.0f) }) { Icon(Icons.Default.ZoomIn, "In") }
+                */
+
                 Spacer(Modifier.weight(1f))
                 if(statusMsg.isNotEmpty()) Text(statusMsg, fontSize = 12.sp, color = Color(0xFF006400))
             }

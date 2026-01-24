@@ -442,39 +442,50 @@ fun FilePanel(
                     border = FilterChipDefaults.filterChipBorder(enabled = true, selected = isPartitionModeEnabled, borderColor = Color.Transparent)
                 )
 
+                // --- NEW EXPORT PDF BUTTON ---
                 Button(
                     onClick = {
                         if(reportItems.isNotEmpty()) {
-                            pickFolder()?.let { folder ->
+                            // Assumes pickSaveFile is available in the scope (e.g. passed down or imported from Main.kt utils)
+                            pickSaveFile("Report.pdf")?.let { file ->
                                 scope.launch {
-                                    onStatusChange("Rendering...")
+                                    onStatusChange("Generating PDF...")
                                     withContext(Dispatchers.IO) {
-                                        reportItems.forEachIndexed { index, item ->
-                                            val cfg = pageConfigs[item.id] ?: ReportConfig()
-                                            val txts = pageTextData[item.id] ?: emptyList()
-                                            val hScale = if (cfg.legendType == "L-Section") lHScale else xHScale
-                                            val vScale = if (cfg.legendType == "L-Section") lVScale else xVScale
-                                            val pageNumStr = pageNumberOverrides[item.id] ?: "${index + 1}"
+                                        saveReportToPdf(
+                                            reportItems = reportItems,
+                                            file = file,
+                                            paperSize = selectedPaperSize,
+                                            isLandscape = isLandscape,
+                                            lHScale = lHScale, lVScale = lVScale,
+                                            xHScale = xHScale, xVScale = xVScale,
+                                            pageConfigs = pageConfigs,
+                                            pageTextData = pageTextData,
+                                            // NEW: Pass the maps
+                                            pageElementData = pageElementData,
+                                            pageAnnexureValues = pageAnnexureValues,
+                                            pageB1Values = pageB1Values,
+                                            pageNumberOverrides = pageNumberOverrides,
 
-                                            saveSplitPage(
-                                                item.data, File(folder, "Page_${pageNumStr}.png"),
-                                                item.xOffset.toInt(), item.yOffset.toInt(),
-                                                item.type, selectedPaperSize, isLandscape, hScale, vScale, cfg,
-                                                0.0, showPre, showPost, preColor, postColor, preDotted, postDotted, preWidth, postWidth, preShowPoints, postShowPoints, showGrid,
-                                                textAnnotations = txts
-                                            )
-                                        }
+                                            showPre = showPre, showPost = showPost,
+                                            preColor = preColor, postColor = postColor,
+                                            preDotted = preDotted, postDotted = postDotted,
+                                            preWidth = preWidth, postWidth = postWidth,
+                                            preShowPoints = preShowPoints, postShowPoints = postShowPoints,
+                                            showGrid = showGrid
+                                        )
                                     }
-                                    onStatusChange("Export Complete!")
+                                    onStatusChange("PDF Saved Successfully!")
                                 }
                             }
                         }
                     },
                     modifier = Modifier.height(28.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF2B579A))
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F), contentColor = Color.White)
                 ) {
-                    Text("Export Images", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Icon(Icons.Default.PictureAsPdf, null, modifier = Modifier.size(12.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Export PDF", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -972,7 +983,7 @@ fun FilePanel(
                             val awtPreColor = java.awt.Color(el.graphPreColor.red, el.graphPreColor.green, el.graphPreColor.blue)
                             val awtPostColor = java.awt.Color(el.graphPostColor.red, el.graphPostColor.green, el.graphPostColor.blue)
                             GraphPageCanvas(
-                                modifier = Modifier.fillMaxSize(), data = el.graphData, type = el.graphType, paperSize = PaperSize.A4, isLandscape = isLandscape, hScale = el.graphHScale, vScale = el.graphVScale, config = ReportConfig(), showPre = el.graphShowPre, showPost = el.graphShowPost, preColor = awtPreColor, postColor = awtPostColor, preWidth = el.graphPreWidth, postWidth = el.graphPostWidth, preDotted = el.graphPreDotted, postDotted = el.graphPostDotted, preShowPoints = true, postShowPoints = true, showGrid = el.graphShowGrid, isTransparentOverlay = true
+                                modifier = Modifier.fillMaxSize(), data = el.graphData, type = el.graphType, paperSize = PaperSize.A4, isLandscape = isLandscape, hScale = el.graphHScale, vScale = el.graphVScale, config = ReportConfig(), showPre = el.graphShowPre, showPost = el.graphShowPost, preColor = awtPreColor, postColor = awtPostColor, preWidth = el.graphPreWidth, postWidth = el.graphPostWidth, preDotted = el.graphPreDotted, postDotted = el.graphPostDotted, preShowPoints = true, postShowPoints = true, showGrid = showGrid, isTransparentOverlay = true
                             )
                         } else {
                             ElementRenderer(currentElState)

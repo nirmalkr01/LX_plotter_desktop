@@ -97,11 +97,20 @@ fun DesktopApp() {
     var showRuler by remember { mutableStateOf(false) }
     var showGrid by remember { mutableStateOf(false) }
 
+    // ZOOM STATE
+    var graphZoom by remember { mutableStateOf(0.6f) } // Initial Zoom at 60%
+
     // MANUAL MODE STATES
     var isManualMode by remember { mutableStateOf(false) }
     var manualZeroOverrides by remember { mutableStateOf(mapOf<Double, String>()) }
 
-    // Re-process data when dependencies change
+    // --- RE-CALCULATE ERRORS (Pre > Post) ---
+    val dataErrors = remember(riverData) {
+        riverData.filter { it.preMonsoon > it.postMonsoon }
+            .map { DataError(it.chainage, it.distance, it.preMonsoon, it.postMonsoon) }
+    }
+
+    // REACTIVE CORE: Re-process data when raw values, thalweg toggle, or manual 0 shifts change
     LaunchedEffect(useThalweg, rawRiverData, manualZeroOverrides) {
         if (rawRiverData.isNotEmpty()) {
             riverData = processAndCenterData(rawRiverData, useThalweg, manualZeroOverrides)
@@ -205,6 +214,11 @@ fun DesktopApp() {
                     Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
                         AppHeader(
                             status = statusMessage,
+                            errors = dataErrors,
+                            onNavigateToError = { chainage ->
+                                selectedGraphType = "X-Section"
+                                selectedChainage = chainage
+                            },
                             onLoad = { pickFile()?.let { prepareFileLoad(it) } },
                             onDownloadCsv = {
                                 if(riverData.isNotEmpty()) pickSaveFile("modified_data.csv")?.let { file ->
@@ -279,6 +293,17 @@ fun DesktopApp() {
                                                             }
                                                             IconToggleButton(checked = showGrid, onCheckedChange = { showGrid = it }) {
                                                                 Icon(Icons.Default.GridOn, contentDescription = "Grid", tint = if(showGrid) MaterialTheme.colorScheme.primary else Color.Gray)
+                                                            }
+                                                        }
+                                                        // --- ZOOM CONTROLS ---
+                                                        Box(Modifier.width(1.dp).height(30.dp).background(Color.Gray))
+                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                            IconButton(onClick = { graphZoom = (graphZoom - 0.1f).coerceAtLeast(0.2f) }, modifier = Modifier.size(32.dp)) {
+                                                                Icon(Icons.Default.ZoomOut, "Zoom Out")
+                                                            }
+                                                            Text("${(graphZoom * 100).toInt()}%", fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 4.dp))
+                                                            IconButton(onClick = { graphZoom = (graphZoom + 0.1f).coerceAtMost(5.0f) }, modifier = Modifier.size(32.dp)) {
+                                                                Icon(Icons.Default.ZoomIn, "Zoom In")
                                                             }
                                                         }
                                                     }
@@ -380,13 +405,14 @@ fun DesktopApp() {
                                         dataToPlot, selectedGraphType == "L-Section", showPre, showPost, h, v,
                                         preColor, postColor, preDotted, postDotted,
                                         preWidth, postWidth, preShowPoints, postShowPoints,
-                                        showRuler, showGrid
+                                        showRuler, showGrid,
+                                        zoomFactor = graphZoom
                                     )
                                 }
 
                                 Spacer(modifier = Modifier.height(12.dp))
 
-                                // 4. Data Table
+                                // 4. Data Table (Updates trigger rawRiverData change, which triggers re-centering)
                                 CompactDataTable(
                                     data = dataToPlot,
                                     type = selectedGraphType,

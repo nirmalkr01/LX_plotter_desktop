@@ -133,29 +133,9 @@ fun ImagePanel(
 
     Card(modifier = Modifier.fillMaxHeight(), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(2.dp)) {
         Column {
-            // Header
+            // Header - REMOVED SAVE .PNG BUTTON
             Row(Modifier.fillMaxWidth().background(Color(0xFFE3F2FD)).padding(8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("2. Image View (Interactive)", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
-
-                Button(onClick = {
-                    if (activeGraphId != -100.0) {
-                        pickFolder()?.let { folder ->
-                            scope.launch {
-                                onStatusChange("Saving Image...")
-                                val h = if(selectedGraphType=="L-Section") lHScale else xHScale
-                                val v = if(selectedGraphType=="L-Section") lVScale else xVScale
-                                withContext(Dispatchers.IO) {
-                                    saveRawGraph(viewData, File(folder, "Graph_${if(activeGraphId==-1.0)"LSec" else "CH${activeGraphId.toInt()}"}.png"), selectedGraphType, h, v, showPre, showPost, preColor, postColor, preDotted, postDotted, preWidth, postWidth, preShowPoints, postShowPoints)
-                                }
-                                onStatusChange("Image Saved!")
-                            }
-                        }
-                    }
-                }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary), contentPadding = PaddingValues(horizontal = 8.dp), modifier = Modifier.height(28.dp)) {
-                    Icon(Icons.Default.Download, null, modifier = Modifier.size(12.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Save .PNG", fontSize = 10.sp)
-                }
             }
 
             // --- L-SECTION AUTO SPLIT BAR ---
@@ -262,7 +242,7 @@ fun ImagePanel(
             // --- TOOLBAR ---
             Column(Modifier.fillMaxWidth().background(Color(0xFFF5F5F5)).padding(8.dp)) {
 
-                // 1. General Sliders -> REPLACED WITH NUMBER STEPPERS
+                // 1. General Sliders
                 Text("Global Sizes:", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -338,7 +318,7 @@ fun ImagePanel(
 
                     Spacer(Modifier.width(8.dp))
 
-                    // CONTEXTUAL STEPPER (Size) - REPLACED SLIDERS WITH NUMBER STEPPERS
+                    // CONTEXTUAL STEPPER (Size)
                     if (selectedItem is InteractiveItem.RiverText) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text("Size:", fontSize = 10.sp)
@@ -370,7 +350,6 @@ fun ImagePanel(
                             is InteractiveItem.BlueLine -> if(!deletedBlueLines.contains(item.index)) deletedBlueLines.add(item.index)
                             is InteractiveItem.ChainageLabel -> isChLabelDeleted = true
 
-                            // L-Section Delete Logic (Using negative indices map to persist state)
                             is InteractiveItem.LSecPreArrow -> deletedRivers.add(-10)
                             is InteractiveItem.LSecPreText -> deletedRivers.add(-11)
                             is InteractiveItem.LSecPostArrow -> deletedRivers.add(-20)
@@ -407,9 +386,8 @@ fun ImagePanel(
                             tableTextSize = 14f
                             riverTextSize = 14f
                             chainageTextSize = 18f
-                            lSecItemSize = 20f // Reset L-Sec size
+                            lSecItemSize = 20f
 
-                            // Reset L-Sec View as well
                             if(selectedGraphType == "L-Section") {
                                 currentStartCh = startCh
                                 currentEndCh = endCh
@@ -425,23 +403,21 @@ fun ImagePanel(
                         Text("Reset All", fontSize = 11.sp)
                     }
 
-                    // ADD TO SLOT BUTTON (Ensured Visibility)
+                    // ADD TO SLOT BUTTON
                     Button(
                         onClick = {
                             if (activeGraphId != -100.0 && selectedPartitionSlot != null) {
-                                // --- FORCE FIT LOGIC ---
                                 val hS = if(selectedGraphType=="L-Section") lHScale else xHScale
                                 val vS = if(selectedGraphType=="L-Section") lVScale else xVScale
 
                                 val newElement = ReportElement(
                                     type = ElementType.GRAPH_IMAGE,
-                                    // Use PartitionSlot coordinates EXACTLY
                                     xPercent = selectedPartitionSlot.xPercent,
                                     yPercent = selectedPartitionSlot.yPercent,
                                     widthPercent = selectedPartitionSlot.wPercent,
                                     heightPercent = selectedPartitionSlot.hPercent,
 
-                                    graphData = viewData, // Uses the current viewData (respecting splits)
+                                    graphData = viewData,
                                     graphType = selectedGraphType,
                                     graphHScale = hS,
                                     graphVScale = vS,
@@ -452,7 +428,6 @@ fun ImagePanel(
                                     graphPreWidth = preWidth, graphPostWidth = postWidth,
                                     graphShowGrid = showGrid,
 
-                                    // Pass Interactive State
                                     riverOffsets = riverOffsets.toMap(),
                                     blueLineOffsets = blueLineOffsets.toMap(),
                                     chLabelOffset = chLabelOffset,
@@ -465,21 +440,7 @@ fun ImagePanel(
                                     tableGap = tableGap,
                                     riverTextSize = riverTextSize,
                                     chainageTextSize = chainageTextSize,
-
-                                    // Reuse riverTextSize field to pass the new L-Section Size or use riverTextSize
-                                    // Actually, we should store it. Since we can't change ReportElement definition easily in this context,
-                                    // we'll piggyback or ensure the consumer uses a specific field.
-                                    // For now, we will pack the L-Section Size into the riverTextSize if it's L-Section,
-                                    // or better, rely on the fact that riverOffsets stores the positions.
-                                    // To allow size persistence without model change:
-                                    // We can encode size into a dummy offset key if needed, or just let riverTextSize govern it for now if compatible.
-                                    // However, let's use riverTextSize to carry lSecItemSize when in L-Section mode.
-                                    // Logic: if L-Section, 'riverTextSize' represents the L-Sec Label/Arrow size.
-                                    // Since X-Sec and L-Sec are mutually exclusive per element, this works.
-                                    // UPDATE: using lSecItemSize as the value passed to 'riverTextSize' param for L-Section.
-                                    // (Or strictly use 'riverTextSize' variable if user adjusts that slider).
                                 )
-                                // Hack to pass lSecItemSize
                                 val finalElement = if(selectedGraphType == "L-Section") {
                                     newElement.copy(riverTextSize = lSecItemSize)
                                 } else newElement
@@ -490,7 +451,7 @@ fun ImagePanel(
                             }
                         },
                         enabled = selectedPartitionSlot != null,
-                        modifier = Modifier.height(40.dp), // Taller button
+                        modifier = Modifier.height(40.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp)
                     ) {
@@ -516,13 +477,11 @@ fun ImagePanel(
                         preDotted = preDotted, postDotted = postDotted, preWidth = preWidth, postWidth = postWidth,
                         preShowPoints = preShowPoints, postShowPoints = postShowPoints, showGrid = showGrid, isRawView = true,
 
-                        // --- INTERACTIVE STATE ---
                         datumSize = datumSize,
                         axisLabelSize = axisSize,
                         tableTextSize = tableTextSize,
                         tableGap = tableGap,
 
-                        // FIX: Use lSecItemSize if in L-Section mode to reflect slider changes
                         riverTextSize = if(selectedGraphType == "L-Section") lSecItemSize else riverTextSize,
 
                         chainageTextSize = chainageTextSize,
@@ -536,14 +495,13 @@ fun ImagePanel(
                         isChLabelDeleted = isChLabelDeleted,
 
                         selectedItem = selectedItem,
-                        onSelectItem = { /* Disabled tap selection */ },
+                        onSelectItem = { },
                         onDragItem = { item, dragAmount ->
                             when(item) {
                                 is InteractiveItem.RiverText -> riverOffsets[item.index] = (riverOffsets[item.index] ?: Offset.Zero) + dragAmount
                                 is InteractiveItem.BlueLine -> blueLineOffsets[item.index] = (blueLineOffsets[item.index] ?: Offset.Zero) + dragAmount
                                 is InteractiveItem.ChainageLabel -> chLabelOffset += dragAmount
 
-                                // L-Section Drag (Store in negative keys of riverOffsets)
                                 is InteractiveItem.LSecPreArrow -> riverOffsets[-10] = (riverOffsets[-10] ?: Offset.Zero) + dragAmount
                                 is InteractiveItem.LSecPreText -> riverOffsets[-11] = (riverOffsets[-11] ?: Offset.Zero) + dragAmount
                                 is InteractiveItem.LSecPostArrow -> riverOffsets[-20] = (riverOffsets[-20] ?: Offset.Zero) + dragAmount
@@ -557,7 +515,6 @@ fun ImagePanel(
     }
 }
 
-// --- HELPER FOR NUMBER STEPPER ---
 @Composable
 fun NumberStepper(
     value: Float,
@@ -566,7 +523,6 @@ fun NumberStepper(
     step: Float = 1f
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        // Minus Button
         Box(
             modifier = Modifier
                 .size(20.dp)
@@ -582,7 +538,6 @@ fun NumberStepper(
 
         Spacer(Modifier.width(4.dp))
 
-        // Text Input
         var text by remember(value) { mutableStateOf(String.format("%.1f", value).removeSuffix(".0")) }
 
         BasicTextField(
@@ -604,7 +559,6 @@ fun NumberStepper(
 
         Spacer(Modifier.width(4.dp))
 
-        // Plus Button
         Box(
             modifier = Modifier
                 .size(20.dp)

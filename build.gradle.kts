@@ -18,6 +18,7 @@ dependencies {
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)
     implementation(compose.materialIconsExtended)
+    implementation("org.apache.pdfbox:pdfbox:2.0.30")
 }
 
 compose.desktop {
