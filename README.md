@@ -103,7 +103,7 @@ IntelliJ/IDE configuration files (.idea/, *.iml)
 OS-specific system files (.DS_Store)
 
 👨‍💻 Author
-Nirmal Kumar Computer Science Engineer Kotlin | Desktop Apps | Systems & Tools
+Nirmal Kumar  
 
 📄 License
 This project is for educational and experimental use. You may modify and extend it freely.
