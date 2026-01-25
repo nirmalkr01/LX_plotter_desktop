@@ -10,8 +10,9 @@ plugins {
 
 group = "com.lxplotter"
 // --- MASTER VERSION CONTROL ---
-// Increment this (e.g., 1.0.2) when you are ready to push the UI fixes
-version = "1.0.1"
+// Increment this (e.g., 1.0.3) when you are ready for the NEXT release.
+// Keeping at 1.0.2 to overwrite the broken release.
+version = "1.0.2"
 
 repositories {
     google()
@@ -75,13 +76,14 @@ tasks.register("releaseToVercel") {
             throw GradleException("Build failed: MSI not found at ${sourceMsi.absolutePath}")
         }
 
-        // 2. Update version.json INSIDE the 'public' folder (Fixes 404 Error)
+        // 2. Update version.json INSIDE the 'public' folder
         val versionFile = File(publicDir, "version.json")
+        // FIX: Removed the {'$'} escape sequence so $msiName injects the actual filename
         val vJson = """
         {
           "version": "$vVersion",
           "msiUrl": "https://lx-plotter-app-mxd1.vercel.app/$msiName",
-          "notes": "Version $vVersion: Stabilized Vercel deployment and fixed 404 errors."
+          "notes": "Version $vVersion"
         }
         """.trimIndent()
         versionFile.writeText(vJson)

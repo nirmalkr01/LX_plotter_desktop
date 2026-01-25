@@ -20,6 +20,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.awt.Dimension
 import java.awt.Desktop
 import java.io.File
 import java.net.URI
@@ -27,11 +28,14 @@ import java.net.URL
 import kotlin.math.abs
 
 // --- CONFIGURATION ---
-const val CURRENT_APP_VERSION = "1.0.0"
-const val UPDATE_JSON_URL = "https://lxplotter-dist.vercel.app/version.json" // CHANGE THIS TO YOUR VERCEL URL
+// CHANGED: Using the 'mxd1' domain which appears to be your active alternative
+const val CURRENT_APP_VERSION = "1.0.2"
+const val UPDATE_JSON_URL = "https://lx-plotter-app-mxd1.vercel.app/version.json"
 
 fun main() = application {
     Window(onCloseRequest = ::exitApplication, title = "LX Plotter (Engineering Edition)") {
+        // FIX: Set minimum size to prevent UI collapse on small laptop screens
+        window.minimumSize = Dimension(1024, 720)
         MaterialTheme(colorScheme = lightColorScheme()) { DesktopApp() }
     }
 }
@@ -61,9 +65,12 @@ fun DesktopApp() {
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
             try {
-                val jsonStr = URL(UPDATE_JSON_URL).readText()
+                // Force cache bypass with timestamp
+                val jsonStr = URL("$UPDATE_JSON_URL?t=${System.currentTimeMillis()}").readText()
                 val json = JSONObject(jsonStr)
                 val serverVersion = json.getString("version")
+
+                // Compare versions (simple string check)
                 if (serverVersion != CURRENT_APP_VERSION) {
                     updateUrl = json.getString("msiUrl")
                     updateNotes = json.optString("notes", "New features available.")
@@ -170,7 +177,6 @@ fun DesktopApp() {
         // --- UPDATE BANNER ---
         if (updateAvailable) {
             Surface(color = Color(0xFFFFF3E0), modifier = Modifier.fillMaxWidth().height(40.dp).clickable {
-                // Open browser to download MSI directly
                 if (Desktop.isDesktopSupported()) Desktop.getDesktop().browse(URI(updateUrl))
             }) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
@@ -327,7 +333,7 @@ fun DesktopApp() {
                                         }
                                     }
 
-                                    // WORKSPACE (Responsive Layout Fix)
+                                    // WORKSPACE (Responsive Layout)
                                     Column(modifier = Modifier.padding(16.dp).fillMaxSize()) {
                                         val dataToPlot = remember(selectedGraphType, selectedChainage, riverData, startChainage, endChainage) { getCurrentViewData(riverData, selectedGraphType, selectedChainage, startChainage, endChainage) }
 
@@ -336,8 +342,7 @@ fun DesktopApp() {
                                             val h = if(selectedGraphType == "L-Section") lHScale else xHScale
                                             val v = if(selectedGraphType == "L-Section") lVScale else xVScale
 
-                                            // Safe Draw - Requires wrapping inside BoxWithConstraints in Graph.kt,
-                                            // but using weight here ensures container has size.
+                                            // Safe Draw
                                             EngineeringCanvas(dataToPlot, selectedGraphType == "L-Section", showPre, showPost, h, v, preColor, postColor, preDotted, postDotted, preWidth, postWidth, preShowPoints, postShowPoints, showRuler, showGrid, zoomFactor = graphZoom)
                                         }
                                         Spacer(modifier = Modifier.height(12.dp))

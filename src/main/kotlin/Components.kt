@@ -24,10 +24,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.io.File
 
-// --- DATA CLASS FOR ERRORS ---
 data class DataError(val chainage: Double, val offset: Double, val pre: Double, val post: Double)
 
-// --- HELPER FOR CUSTOM BORDERS ---
 fun Modifier.customBorder(
     width: Dp,
     color: Color,
@@ -43,7 +41,6 @@ fun Modifier.customBorder(
     if (end) drawLine(color, Offset(size.width, 0f), Offset(size.width, size.height), strokeWidth)
 }
 
-// --- HEADER ---
 @Composable
 fun AppHeader(
     status: String,
@@ -71,24 +68,19 @@ fun AppHeader(
                 Spacer(Modifier.width(8.dp))
                 Text("LX Plotter", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
                 Spacer(Modifier.width(16.dp))
-                Text(status, fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
+                // Responsive: Hide status on very small screens or truncate
+                Text(status, fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f), maxLines = 1)
             }
 
+            // Responsive: Wrap row or scroll if needed (though 1024px min width handles this mostly)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-
-                // --- NOTIFICATION ICON ---
                 NotificationSection(errors, onNavigateToError)
-
                 VerticalDivider(Modifier.height(24.dp).padding(horizontal = 4.dp))
-
-                // 1. Load
                 Button(onClick = onLoad, contentPadding = PaddingValues(horizontal = 12.dp), shape = RoundedCornerShape(8.dp)) {
                     Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
                     Text("Load")
                 }
-
-                // 2. Download Menu
                 Box {
                     Button(onClick = { showDownloadMenu = true }, contentPadding = PaddingValues(horizontal = 12.dp), shape = RoundedCornerShape(8.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer)) {
                         Icon(Icons.Default.Download, "Download", modifier = Modifier.size(16.dp))
@@ -108,8 +100,6 @@ fun AppHeader(
                         )
                     }
                 }
-
-                // 3. Instructions
                 IconButton(onClick = onShowInstructions) {
                     Icon(Icons.Default.Info, "Help", tint = MaterialTheme.colorScheme.onPrimaryContainer)
                 }
@@ -174,7 +164,6 @@ fun NotificationSection(errors: List<DataError>, onNavigate: (Double) -> Unit) {
     }
 }
 
-// --- CSV MAPPING DIALOG ---
 @Composable
 fun CsvMappingDialog(
     headers: List<String>,
@@ -278,7 +267,6 @@ fun ColumnSelector(options: List<String>, selectedIdx: Int, onSelect: (Int) -> U
     }
 }
 
-// --- INSTRUCTION DIALOG ---
 @Composable
 fun InstructionDialog(onDismiss: () -> Unit) {
     AlertDialog(
@@ -300,9 +288,7 @@ fun InstructionDialog(onDismiss: () -> Unit) {
                     Text("• Use the dropdowns to match your CSV headers to 'Chainage', 'Offset', and 'Monsoon Levels'.", fontSize = 13.sp)
                     Text("• Check the preview table to ensure data looks correct, then click 'Confirm Load'.", fontSize = 13.sp)
                 }
-
                 HorizontalDivider()
-
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("Step 2: Analysis & Style", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
                     Text("• Switch between X-Section and L-Section using the top ribbon.", fontSize = 13.sp)
@@ -310,9 +296,7 @@ fun InstructionDialog(onDismiss: () -> Unit) {
                     Text("• Check notifications (Bell icon) for any Pre-Monsoon levels that are higher than Post-Monsoon.", fontSize = 13.sp)
                     Text("• Edit values directly in the bottom table by enabling 'Manual Mode'.", fontSize = 13.sp)
                 }
-
                 HorizontalDivider()
-
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("Step 3: Preparing the Layout", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
                     Text("• Click 'Download' -> 'Report' to enter the Designer Screen.", fontSize = 13.sp)
@@ -320,18 +304,14 @@ fun InstructionDialog(onDismiss: () -> Unit) {
                     Text("• Enable 'Grid Mode' (Blue chip at the top) to see available slots on the paper.", fontSize = 13.sp)
                     Text("• Select a graph from the left list, click an empty slot on the page, and press 'Add to Slot'.", fontSize = 13.sp)
                 }
-
                 HorizontalDivider()
-
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("Step 4: Interactive Customization", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
                     Text("• Inside the 'Image View', use the 'Select Element' dropdown to pick 'RIVER' text or 'Blue Lines'.", fontSize = 13.sp)
                     Text("• Drag the elements directly on the preview graph to position them (e.g., move bank indicators).", fontSize = 13.sp)
                     Text("• For L-Sections, use 'Auto Split' to automatically divide long river profiles into multiple printable slots.", fontSize = 13.sp)
                 }
-
                 HorizontalDivider()
-
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("Step 5: Annotation & Final PDF", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
                     Text("• Use 'Insert & Text' tab to add manual notes, arrows, or shapes to your report pages.", fontSize = 13.sp)
@@ -344,7 +324,6 @@ fun InstructionDialog(onDismiss: () -> Unit) {
     )
 }
 
-// --- LEFT PANEL ---
 @Composable
 fun LeftPanel(history: List<String>, onHistoryItemClick: (String) -> Unit, onDeleteHistoryItem: (String) -> Unit) {
     val borderColor = MaterialTheme.colorScheme.outlineVariant
@@ -393,7 +372,6 @@ fun HistoryItemRow(path: String, onClick: (String) -> Unit, onDelete: (String) -
     }
 }
 
-// --- DATA TABLE WITH EDITING ---
 @Composable
 fun CompactDataTable(
     data: List<RiverPoint>,
