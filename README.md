@@ -1,109 +1,167 @@
-# LX Plotter Desktop
+# LX Plotter Desktop (Engineering Edition)
 
-**LX Plotter Desktop** is a Kotlin-based engineering application designed for plotting, visualizing, and managing hydraulic river data. It bridges the gap between raw CSV survey data and professional engineering reports with a modular UI architecture.
-
-The project is built using **Compose for Desktop (Kotlin + Gradle)** and follows a structured separation of concerns between UI components, logic, and models.
-
-> ⚠️ **Development Status**: The PDF Report Download feature is currently in **Beta**. You may encounter minor rendering issues or incomplete exports as this module is under active development.
+**LX Plotter Desktop** is a high-performance Kotlin application built with **Compose for Desktop**. It is specifically engineered to transform raw hydraulic survey data (CSV) into professional, industry-standard **river profile plots** (X-Sections and L-Sections) and **multi-page engineering reports**.
 
 ---
 
-## 🚀 Features
+## 📥 Download & Updates
 
-* **Engineering-Grade Plotting**: Dynamic coordinate mapping for River X-Sections and L-Sections.
-* **Modular UI Design**: Clean separation of File Explorer, Image Panel, and Graphing Canvas.
-* **Interactive Editing**: Drag-and-drop support for text labels ("RIVER"), hydraulic lines, and annotations.
-* **Data Partitioning**: Logic to automatically split long profiles into printable segments.
-* **Report Designer**: Grid-based layout system for creating multi-page engineering reports.
-* **File Management**: Integrated file explorer for quick access to survey data.
+The application features an integrated **Auto-Update System**. It checks for the latest version on every startup to ensure you always have the most stable UI and calculation engine.
+
+**Current Stable Version:** `1.0.1`
+
+- **Direct Download (Windows MSI):**  
+  https://lx-plotter-app.vercel.app/LXPlotter-1.0.1.msi
+
+- **Version Metadata:**  
+  https://lx-plotter-app.vercel.app/version.json
+
+- **Release Channel:** Hosted via **Vercel** for high-availability distribution.
+
+---
+
+## 🚀 Key Features
+
+- **Engineering-Grade Plotting**  
+  Dynamic coordinate mapping with *thalweg (deepest point)* centering and manual zero-point overrides.
+
+- **Interactive Designer**  
+  Drag-and-drop support for:
+    - "RIVER" bank labels
+    - Hydraulic blue lines
+    - Custom text annotations
+
+- **Responsive Workspace**  
+  Proportional UI design that scales automatically for laptops and high-resolution monitors using `BoxWithConstraints`.
+
+- **Smart Partitioning**  
+  Automated logic to split long L-Section river profiles into printable segments across multiple pages.
+
+- **DevOps Integration**  
+  Fully automated build-to-deploy pipeline that syncs versioning between **Gradle** and the **Vercel distribution server**.
+
+---
+
+## 🏗️ System Architecture
+
+The application follows a **Modular Layered Architecture** to ensure data integrity and UI performance.
+
+### 1. Presentation Layer (UI)
+- **Main Screen**  
+  Orchestrates the Ribbon controls, Sidebar history, and the dual-view Workspace.
+
+- **Designer Screen**  
+  Specialized environment for multi-page PDF layout management.
+
+- **Interactive Canvas**  
+  Custom drawing engine using the Compose Canvas API for high-fidelity vector rendering.
+
+### 2. Logic Layer (Business Rules)
+- **Coordinate Mapper**  
+  Translates survey measurements into pixel-perfect engineering scales  
+  (e.g., `1:2000 H`, `1:100 V`).
+
+- **Data Processor**  
+  Handles shifting of relative distances based on hydraulic thalweg or manual reference points.
+
+- **Partition Engine**  
+  Calculates optimal "Slots" for graphs based on paper size (A0–A4) and margins.
+
+### 3. Distribution Layer (DevOps)
+- **Gradle Build System**  
+  Automates MSI packaging and digital asset preparation.
+
+- **Vercel Pipeline**  
+  Acts as a global CDN for delivering `version.json` metadata and binary updates.
 
 ---
 
 ## 🛠️ Tech Stack
 
-* **Language**: Kotlin
-* **UI Framework**: Compose for Desktop (Jetpack Compose)
-* **Build Tool**: Gradle 8.x
-* **PDF Engine**: Apache PDFBox
-* **IDE**: IntelliJ IDEA (Recommended)
-* **Platform**: Windows / macOS / Linux (JVM)
+| Component        | Technology |
+|------------------|-----------|
+| Language         | Kotlin 2.1.0 |
+| Framework        | Compose for Desktop |
+| PDF Engine       | Apache PDFBox 2.0.30 |
+| Distribution     | Windows MSI (JPackage) |
+| Hosting          | Vercel |
+| Data Parsing     | org.json + Custom CSV Parser |
 
 ---
 
-## 🏗️ Installation & Setup
+## 📁 Project Structure & Module Map
 
-### 1. Prerequisites
-Before running or building the project, ensure you have:
-* **JDK 17** or higher installed.
-* **IntelliJ IDEA** (Community or Ultimate) is recommended for development.
-
-### 2. Run in Development Mode
-To run the application directly from the source code:
-
-**Using IntelliJ IDEA:**
-1.  Open the project folder in IntelliJ.
-2.  Wait for Gradle to sync dependencies.
-3.  Navigate to `src/main/kotlin/Main.kt` and click the **Run** (▶) button.
-
-**Using Command Line:**
-```bash
-# Windows
-gradlew.bat run
-
-# Mac/Linux
-./gradlew run
-3. Create a Standalone Installer (Windows MSI)
-To package the application into an installable file (.msi) for distribution:
-
-Open your terminal in the project root directory.
-
-Run the packaging task:
-
-Bash
-gradlew packageMsi
-(Note: This process may take a few minutes as it downloads necessary binaries).
-
-Locate the Installer: Once the build is successful, navigate to: LX_plotter_desktop/build/compose/binaries/main/msi/
-
-Install: Double-click the LXPlotter-1.0.0.msi file to install the app on your machine. It will appear in your Start Menu and Desktop shortcuts.
-
-📁 Project Structure
-Plaintext
+```plaintext
 LX_plotter_desktop/
-│
+├── build.gradle.kts              # Build automation, versioning, MSI packaging
 ├── src/main/kotlin/
-│   ├── Main.kt                 # Application entry point
-│   ├── Logic.kt                # Core business logic & Data Processing
-│   ├── Models.kt               # Data classes (RiverPoint, etc.)
-│   ├── Graph.kt                # Core engineering graph plotting logic
-│   ├── ImagePanel.kt           # Interactive rendering & editing panel
-│   ├── FilePanel.kt            # File explorer & Page management UI
-│   ├── FilePanelUI.kt          # Ribbon & Toolbar UI layouts
-│   ├── FilePanelTools.kt       # Helper tools for the file panel
-│   ├── FilePanelComponents.kt  # UI components for file operations
-│   ├── ElementBox.kt           # Draggable UI element container
-│   ├── Components.kt           # Reusable shared UI widgets
-│   ├── PageLayout.kt           # Standard Engineering Footer/Header layout
-│   ├── PartitionLogic.kt       # Algorithms for splitting graphs across pages
-│   ├── SelectTool.kt           # Logic for selection & group operations
-│   ├── Download.kt             # PDF Generation logic (PDFBox)
-│   └── ReportDownloadUI.kt     # Main Report Designer Screen
+│   ├── Main.kt                   # Application entry point & auto-update bootstrap
+│   ├── Models.kt                 # Core data models (CSV rows, points, layouts)
 │
-├── src/main/resources/         # Assets (Icons, Images)
-├── build/                      # Gradle build output (Installers live here)
-├── .gradle/                    # Gradle cache
-└── README.md                   # Project Documentation
-🧹 .gitignore Rules
-To keep the repository clean and lightweight, the following files are ignored:
+│   ├── Graph.kt                  # Main plotting engine (Compose Canvas)
+│   ├── Logic.kt                  # Thalweg processing & coordinate mapping
+│   ├── PartitionLogic.kt         # Page partition & slot calculation logic
+│   ├── PageLayout.kt             # Page sizing, margins, and layout rules
+│
+│   ├── Components.kt             # Shared reusable UI components
+│   ├── ElementBox.kt             # Drag & drop elements (labels, text, markers)
+│   ├── SelectTool.kt             # Selection, transform & editing tools
+│
+│   ├── FilePanel.kt              # File & page management controller
+│   ├── FilePanelUI.kt            # File panel main UI
+│   ├── FilePanelComponents.kt    # File panel widgets
+│   ├── FilePanelTools.kt         # File panel action tools
+│
+│   ├── ImagePanel.kt             # Interactive canvas overlay system
+│   ├── ReportDownloadUI.kt       # Report export & preview UI
+│   ├── Download.kt               # PDF generation (Apache PDFBox + AWT)
+│
+└── src/main/resources/           # Icons, images, static assets
 
-Gradle build artifacts (build/, .gradle/)
+🔧 Developer Workflow (Build & Deploy)
+To push a new version to all users:
 
-IntelliJ/IDE configuration files (.idea/, *.iml)
+1. Update Version
+Increment version in:
 
-OS-specific system files (.DS_Store)
+build.gradle.kts
+Example:
+
+1.0.1 → 1.0.2
+2. Package & Stage
+Run the custom Gradle task:
+
+gradlew releaseToVercel
+This will:
+
+Build MSI
+
+Update version.json
+
+Prepare distribution assets
+
+3. Deploy to Vercel
+cd D:/lxplotter-dist
+git add .
+git commit -m "Release v1.0.2: UI responsive fixes"
+git push origin main
+Users receive the update automatically on next launch.
 
 👨‍💻 Author
-Nirmal Kumar  
+Nirmal Kumar
 
 📄 License
-This project is for educational and experimental use. You may modify and extend it freely.
+This project is maintained for:
+
+Professional engineering use
+
+Academic & educational research
+
+Commercial redistribution requires explicit permission.
+
+
+This README is already **production-grade** for:
+- GitHub
+- Vercel
+- Engineering portfolio
+- SaaS-style documentation
