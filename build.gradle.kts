@@ -12,7 +12,7 @@ group = "com.lxplotter"
 // --- MASTER VERSION CONTROL ---
 // Increment this (e.g., 1.0.3) when you are ready for the NEXT release.
 // Keeping at 1.0.2 to overwrite the broken release.
-version = "1.0.2"
+version = "1.0.3"
 
 repositories {
     google()

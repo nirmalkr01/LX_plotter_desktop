@@ -30,7 +30,8 @@ import kotlin.math.floor
 import kotlin.math.max
 
 const val PX_PER_CM = 120.0
-const val MAX_CANVAS_SIZE = 50000.0
+// FIX: Reduced Max Size to prevent Constraints Crash on Skiko/AWT
+const val MAX_CANVAS_SIZE = 20000.0
 
 @Composable
 fun EngineeringCanvas(
@@ -87,8 +88,7 @@ fun EngineeringCanvas(
         val containerWidth = constraints.maxWidth.toFloat()
         val containerHeight = constraints.maxHeight.toFloat()
 
-        // FIX: Zoom Crash - If container is smaller than padding or negative, skip drawing
-        if (containerWidth <= padding || containerHeight <= padding) return@BoxWithConstraints
+        if (containerWidth <= 0 || containerHeight <= 0) return@BoxWithConstraints
 
         val enableHScroll = graphRequiredWidth > containerWidth
         val enableVScroll = graphRequiredHeight > containerHeight
@@ -103,66 +103,75 @@ fun EngineeringCanvas(
                 .then(if (enableHScroll) Modifier.horizontalScroll(horizontalScroll) else Modifier)
                 .then(if (enableVScroll) Modifier.verticalScroll(verticalScroll) else Modifier)
         ) {
-            // FIX: Zoom Crash - Ensure size is always positive
-            val finalW = max(graphRequiredWidth, containerWidth.toDouble()).coerceAtLeast(100.0).dp
-            val finalH = max(graphRequiredHeight, containerHeight.toDouble()).coerceAtLeast(100.0).dp
+            val finalW = max(graphRequiredWidth, containerWidth.toDouble()).coerceAtLeast(10.0).dp
+            val finalH = max(graphRequiredHeight, containerHeight.toDouble()).coerceAtLeast(10.0).dp
 
             Canvas(modifier = Modifier.size(finalW, finalH)) {
                 val h = size.height
+                val w = size.width
 
                 fun mapX(v: Double) = (padding + (v - minX) * pxPerMeterX).toFloat()
                 fun mapY(v: Double) = (h - padding - (v - minY) * pxPerMeterY).toFloat()
 
                 val zeroY = mapY(minY)
-                drawLine(Color.Black, Offset(padding.toFloat(), zeroY), Offset((size.width - padding).toFloat(), zeroY), 2f)
-
                 val zeroX = mapX(minX)
+
+                if (zeroY.isNaN() || zeroX.isNaN() || !zeroY.isFinite() || !zeroX.isFinite()) return@Canvas
+
+                // Main Axes
+                drawLine(Color.Black, Offset(padding.toFloat(), zeroY), Offset((w - padding).toFloat(), zeroY), 2f)
                 drawLine(Color.Black, Offset(zeroX, padding.toFloat()), Offset(zeroX, h - padding.toFloat()), 2f)
 
                 val gridColor = Color.LightGray.copy(alpha = 0.5f)
 
                 if (showGrid) {
                     val axisStartX = padding.toFloat()
-                    val axisEndX = (size.width - padding).toFloat()
+                    val axisEndX = (w - padding).toFloat()
                     val axisStartY = zeroY
                     val axisEndY = padding.toFloat()
                     val visualGridStep = currentPxPerCm.toFloat()
 
-                    var xGrid = axisStartX + visualGridStep
-                    while (xGrid < axisEndX) {
-                        drawLine(gridColor, Offset(xGrid, axisStartY), Offset(xGrid, axisEndY), 1f)
-                        xGrid += visualGridStep
-                    }
-
-                    var yGrid = axisStartY - visualGridStep
-                    while (yGrid > axisEndY) {
-                        drawLine(gridColor, Offset(axisStartX, yGrid), Offset(axisEndX, yGrid), 1f)
-                        yGrid -= visualGridStep
+                    if (visualGridStep > 1.5f) {
+                        var xGrid = axisStartX + visualGridStep
+                        while (xGrid < axisEndX) {
+                            drawLine(gridColor, Offset(xGrid, axisStartY), Offset(xGrid, axisEndY), 1f)
+                            xGrid += visualGridStep
+                        }
+                        var yGrid = axisStartY - visualGridStep
+                        while (yGrid > axisEndY) {
+                            drawLine(gridColor, Offset(axisStartX, yGrid), Offset(axisEndX, yGrid), 1f)
+                            yGrid -= visualGridStep
+                        }
                     }
                 }
 
                 val distinctX = xValues.distinct().sorted()
                 distinctX.forEach { xVal ->
                     val xPos = mapX(xVal)
-                    if (xPos >= 0 && xPos <= size.width) {
+                    if (xPos >= padding && xPos <= w - padding) {
                         drawLine(Color.Black, Offset(xPos, zeroY), Offset(xPos, zeroY + 5f), 1f)
-                        drawText(
-                            textMeasurer,
-                            String.format("%.1f", xVal),
-                            Offset(xPos - 15f, zeroY + 10f),
-                            TextStyle(fontSize = 10.sp, color = Color.Black)
-                        )
+
+                        val labelX = xPos - 15f
+                        val labelY = zeroY + 10f
+
+                        // CRITICAL FIX: Ensure the label coordinates don't force negative layout widths
+                        if (labelX >= 0f && labelY >= 0f && labelX < w - 20f && labelY < h - 15f) {
+                            try {
+                                drawText(
+                                    textMeasurer,
+                                    String.format("%.1f", xVal),
+                                    Offset(labelX, labelY),
+                                    TextStyle(fontSize = 10.sp, color = Color.Black)
+                                )
+                            } catch (e: Exception) { /* Silently fail to prevent crash */ }
+                        }
 
                         val fadedColor = Color.LightGray.copy(alpha = 0.5f)
                         points.filter { (if (isLSection) it.chainage else it.distance) == xVal }.forEach { p ->
-                            if (showPre) {
-                                val yPre = mapY(p.preMonsoon)
-                                drawLine(fadedColor, Offset(xPos, yPre), Offset(xPos, zeroY), strokeWidth = 1f)
-                            }
-                            if (showPost) {
-                                val yPost = mapY(p.postMonsoon)
-                                drawLine(fadedColor, Offset(xPos, yPost), Offset(xPos, zeroY), strokeWidth = 1f)
-                            }
+                            val yPre = mapY(p.preMonsoon)
+                            val yPost = mapY(p.postMonsoon)
+                            if (showPre && yPre.isFinite() && yPre >= 0) drawLine(fadedColor, Offset(xPos, yPre), Offset(xPos, zeroY), strokeWidth = 1f)
+                            if (showPost && yPost.isFinite() && yPost >= 0) drawLine(fadedColor, Offset(xPos, yPost), Offset(xPos, zeroY), strokeWidth = 1f)
                         }
                     }
                 }
@@ -171,14 +180,22 @@ fun EngineeringCanvas(
                 for(i in 0..ySteps) {
                     val yVal = minY + i
                     val yPos = mapY(yVal)
-                    if (yPos >= 0 && yPos <= size.height) {
+                    if (yPos >= padding && yPos <= h - padding) {
                         drawLine(Color.Black, Offset(zeroX - 5f, yPos), Offset(zeroX, yPos), 1f)
-                        drawText(
-                            textMeasurer,
-                            String.format("%.1f", yVal),
-                            Offset(zeroX - 35f, yPos - 6f),
-                            TextStyle(fontSize = 10.sp, color = Color.Black)
-                        )
+
+                        val labelX = zeroX - 35f
+                        val labelY = yPos - 6f
+                        // CRITICAL FIX: Similar boundary check for Y axis text
+                        if (labelX >= 0f && labelY >= 0f && labelX < w - 40f && labelY < h - 10f) {
+                            try {
+                                drawText(
+                                    textMeasurer,
+                                    String.format("%.1f", yVal),
+                                    Offset(labelX, labelY),
+                                    TextStyle(fontSize = 10.sp, color = Color.Black)
+                                )
+                            } catch (e: Exception) { /* Silently fail to prevent crash */ }
+                        }
                     }
                 }
 
@@ -192,11 +209,9 @@ fun EngineeringCanvas(
                         val x = mapX(if (isLSection) p.chainage else p.distance)
                         val y = mapY(v)
 
-                        if (x <= size.width && y >= 0) {
+                        if (x.isFinite() && y.isFinite()) {
                             if (first) { path.moveTo(x, y); first = false } else { path.lineTo(x, y) }
-                            if (showPoints) {
-                                drawCircle(color, radius = strokeW + 2f, center = Offset(x, y))
-                            }
+                            if (showPoints) drawCircle(color, radius = strokeW + 1.5f, center = Offset(x, y))
                         }
                     }
                     val effect = if(isDotted) PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f) else null
@@ -209,46 +224,35 @@ fun EngineeringCanvas(
                 if (showRuler) {
                     val rulerWidth = 35f
                     val rulerBg = Color(0xFFF5F5F5)
-                    val tickColor = Color.Black
                     val visualGridStep = currentPxPerCm.toFloat()
                     val axisOriginX = padding.toFloat()
 
-                    drawRect(rulerBg, topLeft = Offset(0f, 0f), size = Size(size.width, rulerWidth))
-                    drawLine(Color.Gray, Offset(0f, rulerWidth), Offset(size.width, rulerWidth))
+                    drawRect(rulerBg, topLeft = Offset(0f, 0f), size = Size(w, rulerWidth))
+                    drawLine(Color.Gray, Offset(0f, rulerWidth), Offset(w, rulerWidth))
 
-                    val totalCmX = ((size.width - axisOriginX) / visualGridStep).toInt()
-
-                    for (i in 0..totalCmX) {
-                        val xPos = axisOriginX + (i * visualGridStep)
-                        if (xPos <= size.width) {
-                            drawLine(tickColor, Offset(xPos, 0f), Offset(xPos, rulerWidth * 0.6f), 1.5f)
-                            drawText(textMeasurer, "$i", Offset(xPos + 3f, 2f), TextStyle(fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color.Black))
-                            for (sub in 1..9) {
-                                val xSub = xPos + (sub * (visualGridStep / 10.0f))
-                                if (xSub <= size.width) {
-                                    val hLine = if (sub == 5) rulerWidth * 0.4f else rulerWidth * 0.25f
-                                    drawLine(tickColor, Offset(xSub, 0f), Offset(xSub, hLine), 1f)
+                    if (visualGridStep > 5f) {
+                        val totalCmX = ((w - axisOriginX) / visualGridStep).toInt().coerceAtMost(2000)
+                        for (i in 0..totalCmX) {
+                            val xPos = axisOriginX + (i * visualGridStep)
+                            if (xPos <= w - 5f && xPos >= 0) {
+                                drawLine(Color.Black, Offset(xPos, 0f), Offset(xPos, rulerWidth * 0.6f), 1.5f)
+                                if (xPos < w - 20f) {
+                                    drawText(textMeasurer, "$i", Offset(xPos + 3f, 2f), TextStyle(fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color.Black))
                                 }
                             }
                         }
-                    }
 
-                    val axisOriginY = zeroY
-                    drawRect(rulerBg, topLeft = Offset(0f, 0f), size = Size(rulerWidth, size.height))
-                    drawLine(Color.Gray, Offset(rulerWidth, 0f), Offset(rulerWidth, size.height))
+                        val axisOriginY = zeroY
+                        drawRect(rulerBg, topLeft = Offset(0f, 0f), size = Size(rulerWidth, h))
+                        drawLine(Color.Gray, Offset(rulerWidth, 0f), Offset(rulerWidth, h))
 
-                    val totalCmY = ((axisOriginY - padding) / visualGridStep).toInt()
-
-                    for (i in 0..totalCmY) {
-                        val yPos = axisOriginY - (i * visualGridStep)
-                        if (yPos >= 0) {
-                            drawLine(tickColor, Offset(0f, yPos), Offset(rulerWidth * 0.6f, yPos), 1.5f)
-                            drawText(textMeasurer, "$i", Offset(2f, yPos + 2f), TextStyle(fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color.Black))
-                            for (sub in 1..9) {
-                                val ySub = yPos - (sub * (visualGridStep / 10.0f))
-                                if (ySub >= 0) {
-                                    val wLine = if (sub == 5) rulerWidth * 0.4f else rulerWidth * 0.25f
-                                    drawLine(tickColor, Offset(0f, ySub), Offset(wLine, ySub), 1f)
+                        val totalCmY = ((axisOriginY - padding) / visualGridStep).toInt().coerceAtMost(1000)
+                        for (i in 0..totalCmY) {
+                            val yPos = (axisOriginY - (i * visualGridStep)).toFloat()
+                            if (yPos >= 0 && yPos <= h) {
+                                drawLine(Color.Black, Offset(0f, yPos), Offset(rulerWidth * 0.6f, yPos), 1.5f)
+                                if (yPos > 10f) {
+                                    drawText(textMeasurer, "$i", Offset(2f, yPos + 2f), TextStyle(fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color.Black))
                                 }
                             }
                         }
@@ -259,17 +263,7 @@ fun EngineeringCanvas(
             }
         }
 
-        if (enableVScroll) {
-            VerticalScrollbar(
-                adapter = rememberScrollbarAdapter(verticalScroll),
-                modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight()
-            )
-        }
-        if (enableHScroll) {
-            HorizontalScrollbar(
-                adapter = rememberScrollbarAdapter(horizontalScroll),
-                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-            )
-        }
+        if (enableVScroll) VerticalScrollbar(adapter = rememberScrollbarAdapter(verticalScroll), modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight())
+        if (enableHScroll) HorizontalScrollbar(adapter = rememberScrollbarAdapter(horizontalScroll), modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth())
     }
 }

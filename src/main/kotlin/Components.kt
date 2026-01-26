@@ -41,10 +41,50 @@ fun Modifier.customBorder(
     if (end) drawLine(color, Offset(size.width, 0f), Offset(size.width, size.height), strokeWidth)
 }
 
+// --- HEADER ICON WITH TOOLTIP ---
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun AppHeader(
+fun HeaderIconButton(
+    onClick: () -> Unit,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    tooltip: String,
+    tint: Color
+) {
+    TooltipArea(
+        tooltip = {
+            Surface(
+                modifier = Modifier.padding(top = 4.dp),
+                color = Color.Black.copy(alpha = 0.8f),
+                shape = RoundedCornerShape(4.dp),
+                shadowElevation = 4.dp
+            ) {
+                Text(
+                    text = tooltip,
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                )
+            }
+        },
+        delayMillis = 500
+    ) {
+        IconButton(onClick = onClick) {
+            Icon(icon, contentDescription = tooltip, tint = tint)
+        }
+    }
+}
+
+// --- NEW UNIFIED HEADER ---
+@Composable
+fun UnifiedAppHeader(
     status: String,
     errors: List<DataError>,
+    activeGroup: ControlGroup,
+    isRibbonOpen: Boolean,
+    onToggleRibbon: () -> Unit,
+    onGroupSelected: (ControlGroup) -> Unit,
+    onToggleHistory: () -> Unit,
+    isHistoryVisible: Boolean,
     onNavigateToError: (Double) -> Unit,
     onLoad: () -> Unit,
     onDownloadCsv: () -> Unit,
@@ -55,38 +95,89 @@ fun AppHeader(
 
     Surface(
         color = MaterialTheme.colorScheme.primaryContainer,
-        modifier = Modifier.fillMaxWidth().height(56.dp),
+        modifier = Modifier.fillMaxWidth().height(50.dp),
         shadowElevation = 4.dp
     ) {
         Row(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
+            // 1. History Toggle (Menu Icon)
+            HeaderIconButton(
+                onClick = onToggleHistory,
+                icon = if(isHistoryVisible) Icons.Default.MenuOpen else Icons.Default.Menu,
+                tooltip = "Toggle History Panel",
+                tint = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+
+            Spacer(Modifier.width(8.dp))
+
+            // 2. Title
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Timeline, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
                 Spacer(Modifier.width(8.dp))
-                Text("LX Plotter", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                Spacer(Modifier.width(16.dp))
-                // Responsive: Hide status on very small screens or truncate
-                Text(status, fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f), maxLines = 1)
+                Text("LX Plotter", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
             }
 
-            // Responsive: Wrap row or scroll if needed (though 1024px min width handles this mostly)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                NotificationSection(errors, onNavigateToError)
-                VerticalDivider(Modifier.height(24.dp).padding(horizontal = 4.dp))
-                Button(onClick = onLoad, contentPadding = PaddingValues(horizontal = 12.dp), shape = RoundedCornerShape(8.dp)) {
-                    Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Load")
-                }
-                Box {
-                    Button(onClick = { showDownloadMenu = true }, contentPadding = PaddingValues(horizontal = 12.dp), shape = RoundedCornerShape(8.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer)) {
-                        Icon(Icons.Default.Download, "Download", modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Download")
+            VerticalDivider(Modifier.height(24.dp).padding(horizontal = 12.dp))
+
+            // 3. Ribbon Tabs (Inline)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                ControlGroup.entries.forEach { group ->
+                    val isActive = activeGroup == group && isRibbonOpen
+                    val label = group.name.replaceFirstChar { it.titlecase() }
+
+                    TextButton(
+                        onClick = { onGroupSelected(group) },
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = if (isActive) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                            containerColor = if (isActive) Color.White.copy(alpha = 0.2f) else Color.Transparent
+                        ),
+                        shape = RoundedCornerShape(4.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Text(label, fontWeight = if(isActive) FontWeight.Bold else FontWeight.Normal)
                     }
+                }
+
+                // Ribbon Collapse Toggle
+                Spacer(Modifier.width(4.dp))
+                HeaderIconButton(
+                    onClick = onToggleRibbon,
+                    icon = if(isRibbonOpen) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    tooltip = if(isRibbonOpen) "Collapse Ribbon" else "Expand Ribbon",
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                )
+            }
+
+            Spacer(Modifier.weight(1f))
+
+            // 4. File Actions
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                // Status Text
+                Text(status, fontSize = 11.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f), maxLines = 1)
+
+                Spacer(Modifier.width(8.dp))
+
+                NotificationSection(errors, onNavigateToError)
+
+                VerticalDivider(Modifier.height(20.dp).padding(horizontal = 4.dp))
+
+                HeaderIconButton(
+                    onClick = onLoad,
+                    icon = Icons.Default.Add, // Changed to + icon
+                    tooltip = "Load New CSV File",
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                )
+
+                Box {
+                    HeaderIconButton(
+                        onClick = { showDownloadMenu = true },
+                        icon = Icons.Default.SaveAlt,
+                        tooltip = "Download / Report",
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
                     DropdownMenu(expanded = showDownloadMenu, onDismissRequest = { showDownloadMenu = false }) {
                         DropdownMenuItem(
                             text = { Text("Report") },
@@ -100,13 +191,19 @@ fun AppHeader(
                         )
                     }
                 }
-                IconButton(onClick = onShowInstructions) {
-                    Icon(Icons.Default.Info, "Help", tint = MaterialTheme.colorScheme.onPrimaryContainer)
-                }
+
+                HeaderIconButton(
+                    onClick = onShowInstructions,
+                    icon = Icons.Default.HelpOutline,
+                    tooltip = "Help",
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                )
             }
         }
     }
 }
+
+// Deprecated AppHeader replaced by UnifiedAppHeader, keeping NotificationSection and others
 
 @Composable
 fun NotificationSection(errors: List<DataError>, onNavigate: (Double) -> Unit) {
@@ -283,7 +380,7 @@ fun InstructionDialog(onDismiss: () -> Unit) {
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("Step 1: Loading Data", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
-                    Text("• Click the 'Load' button in the top header.", fontSize = 13.sp)
+                    Text("• Click the 'Load' (+) button in the top header.", fontSize = 13.sp)
                     Text("• Select your CSV file. A mapping window will appear.", fontSize = 13.sp)
                     Text("• Use the dropdowns to match your CSV headers to 'Chainage', 'Offset', and 'Monsoon Levels'.", fontSize = 13.sp)
                     Text("• Check the preview table to ensure data looks correct, then click 'Confirm Load'.", fontSize = 13.sp)

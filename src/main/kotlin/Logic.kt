@@ -4,6 +4,7 @@ import java.io.File
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.round
+import org.json.JSONObject
 
 // --- DATA PROCESSING ---
 fun getCurrentViewData(allData: List<RiverPoint>, type: String, chainage: Double, startCh: Double, endCh: Double): List<RiverPoint> {
@@ -164,4 +165,74 @@ fun saveHistory(paths: List<String>) {
 fun loadHistory(): List<String> {
     val file = getHistoryFile()
     return if (file.exists()) file.readLines().filter { it.isNotBlank() } else emptyList()
+}
+
+// --- PREFERENCES / SETTINGS PERSISTENCE ---
+
+fun getPrefsFile(): File {
+    val userHome = System.getProperty("user.home")
+    val appDir = File(userHome, ".lxplotter")
+    if (!appDir.exists()) appDir.mkdirs()
+    return File(appDir, "file_prefs.json")
+}
+
+// Saves mapping and current view settings for a specific file
+fun saveFilePrefs(
+    filePath: String,
+    mapping: Map<String, Int>,
+    showPre: Boolean, showPost: Boolean,
+    preDotted: Boolean, postDotted: Boolean,
+    preWidth: Float, postWidth: Float,
+    preShowPoints: Boolean, postShowPoints: Boolean,
+    lHScale: Double, lVScale: Double,
+    xHScale: Double, xVScale: Double,
+    preColor: Int, postColor: Int
+) {
+    try {
+        val file = getPrefsFile()
+        val rootJson = if (file.exists()) try { JSONObject(file.readText()) } catch(e:Exception){ JSONObject() } else JSONObject()
+
+        val fileObj = JSONObject()
+
+        // 1. Save Column Mapping
+        val mapObj = JSONObject()
+        mapping.forEach { (k, v) -> mapObj.put(k, v) }
+        fileObj.put("mapping", mapObj)
+
+        // 2. Save View Settings
+        val viewObj = JSONObject()
+        viewObj.put("showPre", showPre)
+        viewObj.put("showPost", showPost)
+        viewObj.put("preDotted", preDotted)
+        viewObj.put("postDotted", postDotted)
+        viewObj.put("preWidth", preWidth.toDouble())
+        viewObj.put("postWidth", postWidth.toDouble())
+        viewObj.put("preShowPoints", preShowPoints)
+        viewObj.put("postShowPoints", postShowPoints)
+        viewObj.put("lHScale", lHScale)
+        viewObj.put("lVScale", lVScale)
+        viewObj.put("xHScale", xHScale)
+        viewObj.put("xVScale", xVScale)
+        viewObj.put("preColor", preColor)
+        viewObj.put("postColor", postColor)
+
+        fileObj.put("view", viewObj)
+
+        // Use hash of path as key to avoid invalid JSON keys
+        rootJson.put(filePath.hashCode().toString(), fileObj)
+
+        file.writeText(rootJson.toString())
+    } catch (e: Exception) { e.printStackTrace() }
+}
+
+// Load preferences for a file, returns JSONObject containing "mapping" and "view"
+fun loadFilePrefs(filePath: String): JSONObject? {
+    try {
+        val file = getPrefsFile()
+        if (!file.exists()) return null
+        val rootJson = JSONObject(file.readText())
+        val key = filePath.hashCode().toString()
+        if (rootJson.has(key)) return rootJson.getJSONObject(key)
+    } catch (e: Exception) { e.printStackTrace() }
+    return null
 }
