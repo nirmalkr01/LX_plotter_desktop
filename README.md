@@ -10,8 +10,8 @@ The application features an integrated **Auto-Update System**. It checks for the
 
 **Current Release:** `Latest Stable`
 
-- **Direct Download (Windows MSI):** [Click here to download latest MSI](https://lx-plotter-app-mxd1.vercel.app/LXPlotter-1.0.2.msi)  
-  *(Note: The link above serves the current stable version v1.0.2)*
+- **Direct Download (Windows MSI):** [Click here to download latest MSI](https://lx-plotter-app-mxd1.vercel.app/LXPlotter-1.0.3.msi)  
+  *(Note: The link above serves the current stable version v1.0.3)*
 
 - **Version Metadata:** https://lx-plotter-app-mxd1.vercel.app/version.json
 
