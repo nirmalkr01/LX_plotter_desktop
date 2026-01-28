@@ -14,6 +14,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -59,9 +60,11 @@ data class LSectionSplit(val index: Int, val start: Double, val end: Double)
 fun ImagePanel(
     riverData: List<RiverPoint>,
     activeGraphId: Double,
-    startCh: Double, // Passed from parent
-    endCh: Double,   // Passed from parent
+    onActiveGraphIdChange: (Double) -> Unit, // NEW CALLBACK
+    startCh: Double,
+    endCh: Double,
     selectedGraphType: String,
+    onGraphTypeChange: (String) -> Unit, // NEW CALLBACK
     lHScale: Double, lVScale: Double,
     xHScale: Double, xVScale: Double,
     showPre: Boolean, showPost: Boolean,
@@ -161,6 +164,7 @@ fun ImagePanel(
             ) {
                 ImagePanelRibbonTab("Size", activeTab == "Size") { activeTab = "Size"; if(!isRibbonOpen) isRibbonOpen = true }
                 ImagePanelRibbonTab("Edit", activeTab == "Edit") { activeTab = "Edit"; if(!isRibbonOpen) isRibbonOpen = true }
+                ImagePanelRibbonTab("Graph", activeTab == "Graph") { activeTab = "Graph"; if(!isRibbonOpen) isRibbonOpen = true }
 
                 Spacer(Modifier.width(8.dp))
 
@@ -201,6 +205,101 @@ fun ImagePanel(
                                     }
                                 }
                             }
+                        } else if (activeTab == "Graph") {
+                            // --- GRAPH SELECTION TOOLS (SPLIT UP/DOWN) ---
+                            ImagePanelRibbonGroup("Select Graph") {
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp), horizontalAlignment = Alignment.Start) {
+                                    // TOP: X-SECTION ROW
+                                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                                        Button(
+                                            onClick = { onGraphTypeChange("X-Section"); if(riverData.isNotEmpty()) onActiveGraphIdChange(riverData.minOf { it.chainage }) },
+                                            modifier = Modifier.height(28.dp),
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = if(selectedGraphType == "X-Section") MaterialTheme.colorScheme.primary else Color.LightGray)
+                                        ) {
+                                            Text("X-Sec", fontSize = 10.sp)
+                                        }
+                                        Spacer(Modifier.width(8.dp))
+
+                                        if(selectedGraphType == "X-Section") {
+                                            val xGraphs = remember(riverData) { riverData.map { it.chainage }.distinct().sorted() }
+                                            val currentIndex = xGraphs.indexOf(activeGraphId)
+                                            val listState = rememberLazyListState()
+
+                                            // Auto-scroll to selected item
+                                            LaunchedEffect(activeGraphId) {
+                                                if(currentIndex >= 0) listState.animateScrollToItem(max(0, currentIndex - 2))
+                                            }
+
+                                            // Previous Arrow
+                                            IconButton(
+                                                onClick = { if (currentIndex > 0) onActiveGraphIdChange(xGraphs[currentIndex - 1]) },
+                                                enabled = currentIndex > 0,
+                                                modifier = Modifier.size(20.dp)
+                                            ) {
+                                                Icon(Icons.Default.KeyboardArrowLeft, "Previous", tint = if(currentIndex > 0) Color.Black else Color.LightGray)
+                                            }
+
+                                            Spacer(Modifier.width(4.dp))
+
+                                            // The List (Professional View)
+                                            LazyRow(
+                                                state = listState,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                modifier = Modifier.weight(1f)
+                                            ) {
+                                                items(xGraphs) { ch ->
+                                                    val isSelected = activeGraphId == ch
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .height(24.dp)
+                                                            .clip(RoundedCornerShape(4.dp))
+                                                            .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+                                                            .clickable { onActiveGraphIdChange(ch) }
+                                                            .padding(horizontal = 8.dp),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Text(
+                                                            "${ch.toInt()}",
+                                                            fontSize = 11.sp,
+                                                            fontWeight = if(isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                            color = if(isSelected) MaterialTheme.colorScheme.primary else Color.DarkGray
+                                                        )
+                                                    }
+                                                }
+                                            }
+
+                                            Spacer(Modifier.width(4.dp))
+
+                                            // Next Arrow
+                                            IconButton(
+                                                onClick = { if (currentIndex < xGraphs.size - 1) onActiveGraphIdChange(xGraphs[currentIndex + 1]) },
+                                                enabled = currentIndex != -1 && currentIndex < xGraphs.size - 1,
+                                                modifier = Modifier.size(20.dp)
+                                            ) {
+                                                Icon(Icons.Default.KeyboardArrowRight, "Next", tint = if(currentIndex < xGraphs.size - 1) Color.Black else Color.LightGray)
+                                            }
+                                        }
+                                    }
+
+                                    // BOTTOM: L-SECTION ROW
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Button(
+                                            onClick = { onGraphTypeChange("L-Section"); onActiveGraphIdChange(-1.0) },
+                                            modifier = Modifier.height(28.dp),
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = if(selectedGraphType == "L-Section") MaterialTheme.colorScheme.primary else Color.LightGray)
+                                        ) {
+                                            Text("L-Sec", fontSize = 10.sp)
+                                        }
+                                        Spacer(Modifier.width(8.dp))
+                                        if(selectedGraphType == "L-Section") {
+                                            Text("L-Section Profile Selected", fontSize = 10.sp, color = Color.Gray)
+                                        }
+                                    }
+                                }
+                            }
+
                         } else {
                             // --- EDIT TOOLS ---
                             ImagePanelRibbonGroup("Selection") {
@@ -271,8 +370,8 @@ fun ImagePanel(
 
             Divider(color = Color(0xFFE0E0E0))
 
-            // 3. CANVAS AREA (Scrollable)
-            Box(
+            // 3. CANVAS AREA (Scrollable & Centered)
+            BoxWithConstraints(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
@@ -292,52 +391,64 @@ fun ImagePanel(
                     val contentWidth = maxOf(100.dp, graphDims.width.dp)
                     val contentHeight = maxOf(100.dp, graphDims.height.dp)
 
+                    // Centering Logic
+                    val viewportWidth = maxWidth
+                    val viewportHeight = maxHeight
+
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .horizontalScroll(horizontalScrollState)
                             .verticalScroll(verticalScrollState)
                     ) {
-                        Box(modifier = Modifier.size(contentWidth, contentHeight)) {
-                            GraphPageCanvas(
-                                modifier = Modifier.fillMaxSize(), data = viewData, type = selectedGraphType,
-                                paperSize = PaperSize.A4, isLandscape = true, hScale = hScale, vScale = vScale, config = rawConfig,
-                                showPre = showPre, showPost = showPost, preColor = preColor, postColor = postColor,
-                                preDotted = preDotted, postDotted = postDotted, preWidth = preWidth, postWidth = postWidth,
-                                preShowPoints = preShowPoints, postShowPoints = postShowPoints, showGrid = showGrid, isRawView = true,
+                        // Wrapper to force at least viewport size for alignment
+                        Box(
+                            modifier = Modifier
+                                .width(maxOf(viewportWidth, contentWidth))
+                                .height(maxOf(viewportHeight, contentHeight)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(modifier = Modifier.size(contentWidth, contentHeight)) {
+                                GraphPageCanvas(
+                                    modifier = Modifier.fillMaxSize(), data = viewData, type = selectedGraphType,
+                                    paperSize = PaperSize.A4, isLandscape = true, hScale = hScale, vScale = vScale, config = rawConfig,
+                                    showPre = showPre, showPost = showPost, preColor = preColor, postColor = postColor,
+                                    preDotted = preDotted, postDotted = postDotted, preWidth = preWidth, postWidth = postWidth,
+                                    preShowPoints = preShowPoints, postShowPoints = postShowPoints, showGrid = showGrid, isRawView = true,
 
-                                datumSize = datumSize,
-                                axisLabelSize = axisSize,
-                                tableTextSize = tableTextSize,
-                                tableGap = tableGap,
+                                    datumSize = datumSize,
+                                    axisLabelSize = axisSize,
+                                    tableTextSize = tableTextSize,
+                                    tableGap = tableGap,
 
-                                riverTextSize = if(selectedGraphType == "L-Section") lSecItemSize else riverTextSize,
+                                    riverTextSize = if(selectedGraphType == "L-Section") lSecItemSize else riverTextSize,
 
-                                chainageTextSize = chainageTextSize,
+                                    chainageTextSize = chainageTextSize,
 
-                                riverOffsets = riverOffsets,
-                                blueLineOffsets = blueLineOffsets,
-                                chLabelOffset = chLabelOffset,
+                                    riverOffsets = riverOffsets,
+                                    blueLineOffsets = blueLineOffsets,
+                                    chLabelOffset = chLabelOffset,
 
-                                deletedRiverIndices = deletedRivers,
-                                deletedBlueLineIndices = deletedBlueLines,
-                                isChLabelDeleted = isChLabelDeleted,
+                                    deletedRiverIndices = deletedRivers,
+                                    deletedBlueLineIndices = deletedBlueLines,
+                                    isChLabelDeleted = isChLabelDeleted,
 
-                                selectedItem = selectedItem,
-                                onSelectItem = { },
-                                onDragItem = { item, dragAmount ->
-                                    when(item) {
-                                        is InteractiveItem.RiverText -> riverOffsets[item.index] = (riverOffsets[item.index] ?: Offset.Zero) + dragAmount
-                                        is InteractiveItem.BlueLine -> blueLineOffsets[item.index] = (blueLineOffsets[item.index] ?: Offset.Zero) + dragAmount
-                                        is InteractiveItem.ChainageLabel -> chLabelOffset += dragAmount
+                                    selectedItem = selectedItem,
+                                    onSelectItem = { },
+                                    onDragItem = { item, dragAmount ->
+                                        when(item) {
+                                            is InteractiveItem.RiverText -> riverOffsets[item.index] = (riverOffsets[item.index] ?: Offset.Zero) + dragAmount
+                                            is InteractiveItem.BlueLine -> blueLineOffsets[item.index] = (blueLineOffsets[item.index] ?: Offset.Zero) + dragAmount
+                                            is InteractiveItem.ChainageLabel -> chLabelOffset += dragAmount
 
-                                        is InteractiveItem.LSecPreArrow -> riverOffsets[-10] = (riverOffsets[-10] ?: Offset.Zero) + dragAmount
-                                        is InteractiveItem.LSecPreText -> riverOffsets[-11] = (riverOffsets[-11] ?: Offset.Zero) + dragAmount
-                                        is InteractiveItem.LSecPostArrow -> riverOffsets[-20] = (riverOffsets[-20] ?: Offset.Zero) + dragAmount
-                                        is InteractiveItem.LSecPostText -> riverOffsets[-21] = (riverOffsets[-21] ?: Offset.Zero) + dragAmount
-                                    }
-                                },
-                            )
+                                            is InteractiveItem.LSecPreArrow -> riverOffsets[-10] = (riverOffsets[-10] ?: Offset.Zero) + dragAmount
+                                            is InteractiveItem.LSecPreText -> riverOffsets[-11] = (riverOffsets[-11] ?: Offset.Zero) + dragAmount
+                                            is InteractiveItem.LSecPostArrow -> riverOffsets[-20] = (riverOffsets[-20] ?: Offset.Zero) + dragAmount
+                                            is InteractiveItem.LSecPostText -> riverOffsets[-21] = (riverOffsets[-21] ?: Offset.Zero) + dragAmount
+                                        }
+                                    },
+                                )
+                            }
                         }
                     }
 

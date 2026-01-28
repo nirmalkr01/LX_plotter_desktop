@@ -468,8 +468,6 @@ fun FilePanel(
 
             // --- PASS NEW BUTTON PARAMS ---
             onBack = onBack,
-            isLeftPanelVisible = isLeftPanelVisible,
-            onLeftPanelToggle = { onLeftPanelToggle() },
             isMiddlePanelVisible = isMiddlePanelVisible,
             onMiddlePanelToggle = { onMiddlePanelToggle() },
 

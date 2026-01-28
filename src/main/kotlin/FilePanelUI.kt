@@ -68,8 +68,6 @@ fun FilePanelRibbon(
 
     // Navigation & Toggles
     onBack: () -> Unit,
-    isLeftPanelVisible: Boolean,
-    onLeftPanelToggle: () -> Unit,
     isMiddlePanelVisible: Boolean,
     onMiddlePanelToggle: () -> Unit,
 
@@ -357,7 +355,7 @@ fun FilePanelRibbon(
                         "Insert" -> {
                             RibbonGroup("Panels") {
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    RibbonLargeButton(icon = Icons.Default.ViewList, label = "Graphs", color = if (isLeftPanelVisible) Color(0xFF2B579A) else Color.Gray, onClick = onLeftPanelToggle)
+                                    // "Graphs" button REMOVED from here
                                     RibbonLargeButton(icon = Icons.Default.Image, label = "Editor", color = if (isMiddlePanelVisible) Color(0xFF2B579A) else Color.Gray, onClick = onMiddlePanelToggle)
                                 }
                             }

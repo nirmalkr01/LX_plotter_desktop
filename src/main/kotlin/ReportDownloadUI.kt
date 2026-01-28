@@ -96,70 +96,23 @@ fun ReportDownloadScreen(
     var selectedPartition by remember { mutableStateOf<PartitionSlot?>(null) }
     var isPartitionModeEnabled by remember { mutableStateOf(false) }
 
-    // Panel Visibility State (DEFAULT CLOSED)
-    var isLeftPanelVisible by remember { mutableStateOf(false) }
+    // Panel Visibility State (Left Panel Removed)
     var isMiddlePanelVisible by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize().background(Color(0xFFF0F0F0))) {
         Row(modifier = Modifier.weight(1f).fillMaxWidth().padding(8.dp)) {
-
-            // LEFT PANEL: SELECT GRAPH
-            if (isLeftPanelVisible) {
-                Card(modifier = Modifier.weight(0.15f).fillMaxHeight(), colors = CardDefaults.cardColors(containerColor = Color.White)) {
-                    Column(modifier = Modifier.padding(8.dp)) {
-                        Row(modifier = Modifier.fillMaxWidth().height(32.dp).border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(4.dp))) {
-                            // X-SEC BUTTON
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                                    .background(if(selectedGraphType == "X-Section") MaterialTheme.colorScheme.primary else Color.White)
-                                    .clickable {
-                                        selectedGraphType = "X-Section"
-                                        val xGraphs = riverData.map { it.chainage }.distinct().sorted()
-                                        activeGraphId = if(xGraphs.isNotEmpty()) xGraphs.first() else -100.0
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text("X-Sec", color = if(selectedGraphType == "X-Section") Color.White else MaterialTheme.colorScheme.primary, fontSize = 11.sp)
-                            }
-
-                            Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(MaterialTheme.colorScheme.primary))
-
-                            // L-SEC BUTTON
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                                    .background(if(selectedGraphType == "L-Section") MaterialTheme.colorScheme.primary else Color.White)
-                                    .clickable {
-                                        selectedGraphType = "L-Section"
-                                        activeGraphId = -1.0
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text("L-Sec", color = if(selectedGraphType == "L-Section") Color.White else MaterialTheme.colorScheme.primary, fontSize = 11.sp)
-                            }
-                        }
-                        Spacer(Modifier.height(8.dp))
-
-                        LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            items(availableGraphs) { id ->
-                                val label = if(id == -1.0) "L-Section Profile" else "Chainage ${id.toInt()} m"
-                                Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)).background(if (activeGraphId == id) MaterialTheme.colorScheme.primaryContainer else Color.Transparent).clickable { activeGraphId = id }.padding(vertical = 8.dp, horizontal = 4.dp)) { Text(label, fontSize = 12.sp, fontWeight = if(activeGraphId == id) FontWeight.Bold else FontWeight.Normal) }
-                            }
-                        }
-                    }
-                }
-                Spacer(Modifier.width(8.dp))
-            }
 
             // MIDDLE PANEL: IMAGE VIEW
             if (isMiddlePanelVisible) {
                 Box(Modifier.weight(0.35f).fillMaxHeight()) {
                     Column {
                         ImagePanel(
-                            riverData, activeGraphId, startCh, endCh, selectedGraphType, lHScale, lVScale, xHScale, xVScale,
+                            riverData, activeGraphId,
+                            onActiveGraphIdChange = { activeGraphId = it },
+                            startCh, endCh,
+                            selectedGraphType,
+                            onGraphTypeChange = { selectedGraphType = it },
+                            lHScale, lVScale, xHScale, xVScale,
                             showPre, showPost, preColor, postColor, preDotted, postDotted, preWidth, postWidth, preShowPoints, postShowPoints, showGrid,
                             selectedPartitionSlot = selectedPartition,
                             onAddToReport = { newElement ->
@@ -200,10 +153,11 @@ fun ReportDownloadScreen(
 
                     // NEW PARAMS for Navigation & Toggles
                     onBack = onBack,
-                    isLeftPanelVisible = isLeftPanelVisible,
-                    onLeftPanelToggle = { isLeftPanelVisible = !isLeftPanelVisible },
+                    // Removed Left Panel params here
                     isMiddlePanelVisible = isMiddlePanelVisible,
-                    onMiddlePanelToggle = { isMiddlePanelVisible = !isMiddlePanelVisible }
+                    onMiddlePanelToggle = { isMiddlePanelVisible = !isMiddlePanelVisible },
+                    isLeftPanelVisible = false, // Stubbed as false if FilePanel still requires it internally, otherwise remove from FilePanel too
+                    onLeftPanelToggle = {} // Stubbed empty action
                 )
             }
         }
