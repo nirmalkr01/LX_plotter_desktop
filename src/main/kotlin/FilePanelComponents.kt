@@ -1,4 +1,4 @@
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.HorizontalScrollbar
 import androidx.compose.foundation.background
@@ -45,6 +45,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
+import kotlin.math.max
 import kotlin.math.roundToInt
 
 @Composable
@@ -67,7 +68,14 @@ fun FilePanel(
     onPartitionSelected: (PartitionSlot?) -> Unit = {},
     // NEW: Partition Mode State
     isPartitionModeEnabled: Boolean,
-    onPartitionModeToggle: (Boolean) -> Unit
+    onPartitionModeToggle: (Boolean) -> Unit,
+
+    // --- NEW PARAMS FOR NAV & TOGGLES ---
+    onBack: () -> Unit,
+    isLeftPanelVisible: Boolean,
+    onLeftPanelToggle: () -> Unit,
+    isMiddlePanelVisible: Boolean,
+    onMiddlePanelToggle: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
@@ -128,7 +136,9 @@ fun FilePanel(
         onActivePageChanged(activePageIndex)
     }
 
-    var activeTab by remember { mutableStateOf("Page Layout") }
+    // CHANGED: Default tab is now "Home"
+    var activeTab by remember { mutableStateOf("Home") }
+    var isRibbonExpanded by remember { mutableStateOf(true) } // Default Open
 
     // Text Styling Globals
     var globalTextColor by remember { mutableStateOf(Color.Black) }
@@ -413,231 +423,212 @@ fun FilePanel(
                 }
             }
     ) {
-        // ================= HEADER =================
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color(0xFF2B579A))
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.EditNote, null, tint = Color.White)
-                Spacer(Modifier.width(8.dp))
-                Text("Report Designer", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color.White)
-            }
+        // ================= UNIFIED TOOLBAR (REPLACED HEADER & TABS) =================
+        FilePanelRibbon(
+            activeTab = activeTab,
+            onTabChange = { activeTab = it },
+            isRibbonExpanded = isRibbonExpanded,
+            onToggleRibbon = { isRibbonExpanded = !isRibbonExpanded },
 
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                // PARTITION MODE TOGGLE
-                FilterChip(
-                    selected = isPartitionModeEnabled,
-                    onClick = { onPartitionModeToggle(!isPartitionModeEnabled) },
-                    label = { Text("Grid Mode", fontSize = 11.sp, color = if(isPartitionModeEnabled) Color.White else Color(0xFF2B579A)) },
-                    leadingIcon = { Icon(Icons.Default.Grid4x4, null, tint = if(isPartitionModeEnabled) Color.White else Color(0xFF2B579A), modifier = Modifier.size(14.dp)) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = Color(0xFF1976D2), // Darker Blue
-                        containerColor = Color.White
-                    ),
-                    border = FilterChipDefaults.filterChipBorder(enabled = true, selected = isPartitionModeEnabled, borderColor = Color.Transparent)
-                )
-
-                // --- NEW EXPORT PDF BUTTON ---
-                Button(
-                    onClick = {
-                        if(reportItems.isNotEmpty()) {
-                            // Assumes pickSaveFile is available in the scope (e.g. passed down or imported from Main.kt utils)
-                            pickSaveFile("Report.pdf")?.let { file ->
-                                scope.launch {
-                                    onStatusChange("Generating PDF...")
-                                    withContext(Dispatchers.IO) {
-                                        saveReportToPdf(
-                                            reportItems = reportItems,
-                                            file = file,
-                                            paperSize = selectedPaperSize,
-                                            isLandscape = isLandscape,
-                                            lHScale = lHScale, lVScale = lVScale,
-                                            xHScale = xHScale, xVScale = xVScale,
-                                            pageConfigs = pageConfigs,
-                                            pageTextData = pageTextData,
-                                            // NEW: Pass the maps
-                                            pageElementData = pageElementData,
-                                            pageAnnexureValues = pageAnnexureValues,
-                                            pageB1Values = pageB1Values,
-                                            pageNumberOverrides = pageNumberOverrides,
-
-                                            showPre = showPre, showPost = showPost,
-                                            preColor = preColor, postColor = postColor,
-                                            preDotted = preDotted, postDotted = postDotted,
-                                            preWidth = preWidth, postWidth = postWidth,
-                                            preShowPoints = preShowPoints, postShowPoints = postShowPoints,
-                                            showGrid = showGrid
-                                        )
-                                    }
-                                    onStatusChange("PDF Saved Successfully!")
-                                }
+            // HEADER ACTIONS MERGED HERE
+            isPartitionModeEnabled = isPartitionModeEnabled,
+            onPartitionModeToggle = onPartitionModeToggle,
+            onExportPdf = {
+                if(reportItems.isNotEmpty()) {
+                    pickSaveFile("Report.pdf")?.let { file ->
+                        scope.launch {
+                            onStatusChange("Generating PDF...")
+                            withContext(Dispatchers.IO) {
+                                saveReportToPdf(
+                                    reportItems = reportItems,
+                                    file = file,
+                                    paperSize = selectedPaperSize,
+                                    isLandscape = isLandscape,
+                                    lHScale = lHScale, lVScale = lVScale,
+                                    xHScale = xHScale, xVScale = xVScale,
+                                    pageConfigs = pageConfigs,
+                                    pageTextData = pageTextData,
+                                    pageElementData = pageElementData,
+                                    pageAnnexureValues = pageAnnexureValues,
+                                    pageB1Values = pageB1Values,
+                                    pageNumberOverrides = pageNumberOverrides,
+                                    showPre = showPre, showPost = showPost,
+                                    preColor = preColor, postColor = postColor,
+                                    preDotted = preDotted, postDotted = postDotted,
+                                    preWidth = preWidth, postWidth = postWidth,
+                                    preShowPoints = preShowPoints, postShowPoints = postShowPoints,
+                                    showGrid = showGrid
+                                )
                             }
+                            onStatusChange("PDF Saved Successfully!")
                         }
-                    },
-                    modifier = Modifier.height(28.dp),
-                    contentPadding = PaddingValues(horizontal = 12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F), contentColor = Color.White)
-                ) {
-                    Icon(Icons.Default.PictureAsPdf, null, modifier = Modifier.size(12.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Export PDF", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
-            }
-        }
+            },
 
-        // ================= RIBBON TABS =================
-        // Disable Ribbon if in Partition Mode (optional, but cleaner)
-        if (!isPartitionModeEnabled) {
-            Row(modifier = Modifier.fillMaxWidth().background(Color.White)) {
-                RibbonTab("Page Layout", activeTab == "Page Layout") { activeTab = "Page Layout" }
-                RibbonTab("Borders & Margins", activeTab == "Borders") { activeTab = "Borders" }
-                RibbonTab("Insert & Text", activeTab == "Annotation") { activeTab = "Annotation" }
-            }
-            HorizontalDivider(color = Color(0xFFE0E0E0))
+            // --- PASS NEW BUTTON PARAMS ---
+            onBack = onBack,
+            isLeftPanelVisible = isLeftPanelVisible,
+            onLeftPanelToggle = { onLeftPanelToggle() },
+            isMiddlePanelVisible = isMiddlePanelVisible,
+            onMiddlePanelToggle = { onMiddlePanelToggle() },
 
-            // ================= RIBBON UI =================
-            FilePanelRibbon(
-                activeTab = activeTab,
-                selectedPaperSize = selectedPaperSize,
-                onPaperSizeChange = { selectedPaperSize = it },
-                selectedLayoutType = selectedLayoutType,
-                onLayoutTypeChange = { selectedLayoutType = it },
-                activeConfig = activeConfig,
-                onConfigChange = { updateActiveConfig(it) },
-                activeItem = activeItem,
-                pageAnnexureValues = pageAnnexureValues,
-                pageB1Values = pageB1Values,
-                pageNumberOverrides = pageNumberOverrides,
-                activePageIndex = activePageIndex,
-                applyAnnexureToAll = applyAnnexureToAll,
-                onApplyAnnexureChange = { applyAnnexureToAll = it },
-                applyB1ToAll = applyB1ToAll,
-                onApplyB1Change = { applyB1ToAll = it },
-                onApplyHeaderToAll = {
-                    if (activeItem != null) {
-                        val srcAnnex = pageAnnexureValues[activeItem.id] ?: ""
-                        val srcB1 = pageB1Values[activeItem.id] ?: ""
-                        val srcLegend = pageConfigs[activeItem.id]?.legendType ?: "X-Section"
-
-                        reportItems.forEach { item ->
-                            if (applyAnnexureToAll) pageAnnexureValues[item.id] = srcAnnex
-                            if (applyB1ToAll) pageB1Values[item.id] = srcB1
-                            if (applyAnnexureToAll) {
-                                val oldCfg = pageConfigs[item.id] ?: ReportConfig()
-                                pageConfigs[item.id] = oldCfg.copy(legendType = srcLegend)
-                            }
-                        }
-                        onStatusChange("Applied Header settings to ${reportItems.size} pages")
+            // PAGE MANAGEMENT (Moved from Footer)
+            onAddPage = {
+                val newItem = ReportPageItem(graphId = -200.0, type = "Blank", data = emptyList())
+                reportItems.add(newItem)
+                pageConfigs[newItem.id] = ReportConfig()
+                pageTextData[newItem.id] = mutableStateListOf()
+                if(!pageElementData.containsKey(newItem.id)) pageElementData[newItem.id] = mutableStateListOf()
+                pageAnnexureValues[newItem.id] = ""; pageB1Values[newItem.id] = ""; pageNumberOverrides[newItem.id] = "${reportItems.size}"
+                scope.launch { listState.animateScrollToItem(reportItems.lastIndex); activePageIndex = reportItems.lastIndex }
+            },
+            onDeletePage = {
+                if (reportItems.size > 0 && activePageIndex < reportItems.size) {
+                    val id = reportItems[activePageIndex].id
+                    reportItems.removeAt(activePageIndex)
+                    pageConfigs.remove(id); pageTextData.remove(id); pageElementData.remove(id); pageAnnexureValues.remove(id); pageB1Values.remove(id); pageNumberOverrides.remove(id)
+                    if (reportItems.isEmpty()) {
+                        val newItem = ReportPageItem(graphId = -200.0, type = "Blank", data = emptyList())
+                        reportItems.add(newItem)
+                        pageConfigs[newItem.id] = ReportConfig(); pageTextData[newItem.id] = mutableStateListOf(); pageElementData[newItem.id] = mutableStateListOf(); pageAnnexureValues[newItem.id] = ""; pageB1Values[newItem.id] = ""; pageNumberOverrides[newItem.id] = "1"
                     }
-                },
-                renumberStartFrom = renumberStartFrom,
-                onRenumberStartChange = { renumberStartFrom = it },
-                onRenumberAll = {
-                    var counter = renumberStartFrom.toInt()
+                    activePageIndex = activePageIndex.coerceAtMost(reportItems.lastIndex)
+                }
+            },
+            zoomPercent = zoomPercent,
+            onZoomChange = { zoomPercent = it },
+
+            // EXISTING PARAMS
+            selectedPaperSize = selectedPaperSize,
+            onPaperSizeChange = { selectedPaperSize = it },
+            selectedLayoutType = selectedLayoutType,
+            onLayoutTypeChange = { selectedLayoutType = it },
+            activeConfig = activeConfig,
+            onConfigChange = { updateActiveConfig(it) },
+            activeItem = activeItem,
+            pageAnnexureValues = pageAnnexureValues,
+            pageB1Values = pageB1Values,
+            pageNumberOverrides = pageNumberOverrides,
+            activePageIndex = activePageIndex,
+            applyAnnexureToAll = applyAnnexureToAll,
+            onApplyAnnexureChange = { applyAnnexureToAll = it },
+            applyB1ToAll = applyB1ToAll,
+            onApplyB1Change = { applyB1ToAll = it },
+            onApplyHeaderToAll = {
+                if (activeItem != null) {
+                    val srcAnnex = pageAnnexureValues[activeItem.id] ?: ""
+                    val srcB1 = pageB1Values[activeItem.id] ?: ""
+                    val srcLegend = pageConfigs[activeItem.id]?.legendType ?: "X-Section"
+
                     reportItems.forEach { item ->
-                        pageNumberOverrides[item.id] = counter.toString()
-                        counter++
-                    }
-                    onStatusChange("Renumbered pages starting from ${renumberStartFrom.toInt()}")
-                },
-                showPageNumber = showPageNumber,
-                onShowPageNumberChange = { showPageNumber = it },
-                applyMarginsToAll = applyMarginsToAll,
-                onApplyMarginsChange = { applyMarginsToAll = it },
-                applyBordersToAll = applyBordersToAll,
-                onApplyBordersChange = { applyBordersToAll = it },
-                onApplyStylesToAll = {
-                    if (activeItem != null) {
-                        val srcCfg = pageConfigs[activeItem.id] ?: ReportConfig()
-
-                        reportItems.forEach { item ->
-                            val current = pageConfigs[item.id] ?: ReportConfig()
-                            var updated = current
-
-                            if (applyMarginsToAll) {
-                                updated = updated.copy(
-                                    marginTop = srcCfg.marginTop,
-                                    marginBottom = srcCfg.marginBottom,
-                                    marginLeft = srcCfg.marginLeft,
-                                    marginRight = srcCfg.marginRight
-                                )
-                            }
-                            if (applyBordersToAll) {
-                                updated = updated.copy(
-                                    showOuterBorder = srcCfg.showOuterBorder,
-                                    outerThickness = srcCfg.outerThickness,
-                                    outerColor = srcCfg.outerColor,
-                                    showInnerBorder = srcCfg.showInnerBorder,
-                                    innerThickness = srcCfg.innerThickness,
-                                    innerColor = srcCfg.innerColor,
-                                    borderGap = srcCfg.borderGap
-                                )
-                            }
-                            pageConfigs[item.id] = updated
+                        if (applyAnnexureToAll) pageAnnexureValues[item.id] = srcAnnex
+                        if (applyB1ToAll) pageB1Values[item.id] = srcB1
+                        if (applyAnnexureToAll) {
+                            val oldCfg = pageConfigs[item.id] ?: ReportConfig()
+                            pageConfigs[item.id] = oldCfg.copy(legendType = srcLegend)
                         }
-                        onStatusChange("Applied Styles to ${reportItems.size} pages")
                     }
-                },
-                isTextToolActive = isTextToolActive,
-                onTextToolToggle = {
-                    isTextToolActive = !isTextToolActive
-                    isSelectToolActive = false
+                    onStatusChange("Applied Header settings to ${reportItems.size} pages")
+                }
+            },
+            renumberStartFrom = renumberStartFrom,
+            onRenumberStartChange = { renumberStartFrom = it },
+            onRenumberAll = {
+                var counter = renumberStartFrom.toInt()
+                reportItems.forEach { item ->
+                    pageNumberOverrides[item.id] = counter.toString()
+                    counter++
+                }
+                onStatusChange("Renumbered pages starting from ${renumberStartFrom.toInt()}")
+            },
+            showPageNumber = showPageNumber,
+            onShowPageNumberChange = { showPageNumber = it },
+            applyMarginsToAll = applyMarginsToAll,
+            onApplyMarginsChange = { applyMarginsToAll = it },
+            applyBordersToAll = applyBordersToAll,
+            onApplyBordersChange = { applyBordersToAll = it },
+            onApplyStylesToAll = {
+                if (activeItem != null) {
+                    val srcCfg = pageConfigs[activeItem.id] ?: ReportConfig()
+
+                    reportItems.forEach { item ->
+                        val current = pageConfigs[item.id] ?: ReportConfig()
+                        var updated = current
+
+                        if (applyMarginsToAll) {
+                            updated = updated.copy(
+                                marginTop = srcCfg.marginTop,
+                                marginBottom = srcCfg.marginBottom,
+                                marginLeft = srcCfg.marginLeft,
+                                marginRight = srcCfg.marginRight
+                            )
+                        }
+                        if (applyBordersToAll) {
+                            updated = updated.copy(
+                                showOuterBorder = srcCfg.showOuterBorder,
+                                outerThickness = srcCfg.outerThickness,
+                                outerColor = srcCfg.outerColor,
+                                showInnerBorder = srcCfg.showInnerBorder,
+                                innerThickness = srcCfg.innerThickness,
+                                innerColor = srcCfg.innerColor,
+                                borderGap = srcCfg.borderGap
+                            )
+                        }
+                        pageConfigs[item.id] = updated
+                    }
+                    onStatusChange("Applied Styles to ${reportItems.size} pages")
+                }
+            },
+            isTextToolActive = isTextToolActive,
+            onTextToolToggle = {
+                isTextToolActive = !isTextToolActive
+                isSelectToolActive = false
+                selectedElementId = null
+            },
+            isSelectToolActive = isSelectToolActive,
+            onSelectToolToggle = {
+                isSelectToolActive = !isSelectToolActive
+                isTextToolActive = false
+                if(!isSelectToolActive) {
+                    multiSelectedAnnotationIds.clear()
+                    multiSelectedElementIds.clear()
+                    selectedAnnotationId = null
                     selectedElementId = null
-                },
-                isSelectToolActive = isSelectToolActive,
-                onSelectToolToggle = {
-                    isSelectToolActive = !isSelectToolActive
-                    isTextToolActive = false
-                    if(!isSelectToolActive) {
-                        multiSelectedAnnotationIds.clear()
-                        multiSelectedElementIds.clear()
-                        selectedAnnotationId = null
-                        selectedElementId = null
-                    }
-                },
-                hasGroupSelection = false,
-                onCopyGroup = { },
-                canPasteGroup = false,
-                onPasteGroup = { },
-                selectedElementId = selectedElementId,
-                globalShapeStrokeColor = globalShapeStrokeColor,
-                onShapeStrokeColorChange = { updateElementStyle(stroke = it) },
-                globalShapeFillColor = globalShapeFillColor,
-                onShapeFillColorChange = { updateElementStyle(fill = it) },
-                globalShapeStrokeWidth = globalShapeStrokeWidth,
-                onShapeStrokeWidthChange = { updateElementStyle(width = it) },
-                globalShapeRotation = globalShapeRotation,
-                onShapeRotationChange = { updateElementStyle(rotation = it) },
-                globalFontFamily = globalFontFamily,
-                onFontFamilyChange = { updateTextStyle(font = it) },
-                globalTextSize = globalTextSize,
-                onTextSizeChange = { updateTextStyle(size = it) },
-                globalIsBold = globalIsBold,
-                onBoldToggle = { updateTextStyle(bold = !globalIsBold) },
-                globalIsItalic = globalIsItalic,
-                onItalicToggle = { updateTextStyle(italic = !globalIsItalic) },
-                globalIsUnderline = globalIsUnderline,
-                onUnderlineToggle = { updateTextStyle(underline = !globalIsUnderline) },
-                globalTextColor = globalTextColor,
-                onTextColorChange = { updateTextStyle(color = it) },
-                globalTextAlign = globalTextAlign,
-                onTextAlignChange = { updateTextStyle(align = it) },
-                onAddElement = { addElementToActivePage(it) }
-            )
-        } else {
-            // Partition Mode Active Banner
-            Box(Modifier.fillMaxWidth().height(40.dp).background(Color(0xFFE3F2FD)), contentAlignment = Alignment.Center) {
-                Text("Grid Mode Active. Select a slot to add a graph. Toggle off to edit layout.", fontSize = 12.sp, color = Color(0xFF1976D2))
-            }
-        }
+                }
+            },
+            hasGroupSelection = false,
+            onCopyGroup = { },
+            canPasteGroup = false,
+            onPasteGroup = { },
+            selectedElementId = selectedElementId,
+            globalShapeStrokeColor = globalShapeStrokeColor,
+            onShapeStrokeColorChange = { updateElementStyle(stroke = it) },
+            globalShapeFillColor = globalShapeFillColor,
+            onShapeFillColorChange = { updateElementStyle(fill = it) },
+            globalShapeStrokeWidth = globalShapeStrokeWidth,
+            onShapeStrokeWidthChange = { updateElementStyle(width = it) },
+            globalShapeRotation = globalShapeRotation,
+            onShapeRotationChange = { updateElementStyle(rotation = it) },
+            globalFontFamily = globalFontFamily,
+            onFontFamilyChange = { updateTextStyle(font = it) },
+            globalTextSize = globalTextSize,
+            onTextSizeChange = { updateTextStyle(size = it) },
+            globalIsBold = globalIsBold,
+            onBoldToggle = { updateTextStyle(bold = !globalIsBold) },
+            globalIsItalic = globalIsItalic,
+            onItalicToggle = { updateTextStyle(italic = !globalIsItalic) },
+            globalIsUnderline = globalIsUnderline,
+            onUnderlineToggle = { updateTextStyle(underline = !globalIsUnderline) },
+            globalTextColor = globalTextColor,
+            onTextColorChange = { updateTextStyle(color = it) },
+            globalTextAlign = globalTextAlign,
+            onTextAlignChange = { updateTextStyle(align = it) },
+            onAddElement = { addElementToActivePage(it) }
+        )
 
         // ================= WORKSPACE =================
-        Box(
+        BoxWithConstraints(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
@@ -647,10 +638,24 @@ fun FilePanel(
                     parentOffset = layoutCoordinates.positionInWindow()
                 }
         ) {
-            Box(modifier = Modifier.fillMaxSize().horizontalScroll(horizontalScrollState)) { // Added Box with horizontalScroll
+            val constraints = this.constraints
+            // Convert constraint width to Dp for widthIn
+            val minContainerWidthDp = with(density) { constraints.maxWidth.toDp() }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .horizontalScroll(horizontalScrollState)
+            ) {
+                // MODIFIED: LazyColumn now has a minimum width equal to the container width.
+                // This ensures that if the pages are narrower than the screen, the LazyColumn
+                // fills the screen and centers the content via horizontalAlignment.
+                // If the pages are wider, the LazyColumn expands naturally and scrolling works.
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier.widthIn(min = 100.dp).fillMaxHeight(), // Ensure column can expand horizontally if needed, or simply fills
+                    modifier = Modifier
+                        .widthIn(min = minContainerWidthDp)
+                        .fillMaxHeight(),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                     contentPadding = PaddingValues(bottom = 100.dp)
@@ -996,47 +1001,6 @@ fun FilePanel(
                 adapter = rememberScrollbarAdapter(horizontalScrollState),
                 modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(bottom = 0.dp) // Adjust padding if needed to not overlap status bar
             )
-        }
-
-        // FOOTER STATUS BAR (RESTORED)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color(0xFF2B579A))
-                .padding(horizontal = 8.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("Page ${activePageIndex + 1} of ${reportItems.size}", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.width(16.dp))
-            IconButton(onClick = {
-                val newItem = ReportPageItem(graphId = -200.0, type = "Blank", data = emptyList())
-                reportItems.add(newItem)
-                pageConfigs[newItem.id] = ReportConfig()
-                pageTextData[newItem.id] = mutableStateListOf()
-                if(!pageElementData.containsKey(newItem.id)) pageElementData[newItem.id] = mutableStateListOf()
-                pageAnnexureValues[newItem.id] = ""; pageB1Values[newItem.id] = ""; pageNumberOverrides[newItem.id] = "${reportItems.size}"
-                scope.launch { listState.animateScrollToItem(reportItems.lastIndex); activePageIndex = reportItems.lastIndex }
-            }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.NoteAdd, "New Page", tint = Color.White, modifier = Modifier.size(16.dp)) }
-
-            IconButton(onClick = {
-                if (reportItems.size > 0 && activePageIndex < reportItems.size) {
-                    val id = reportItems[activePageIndex].id
-                    reportItems.removeAt(activePageIndex)
-                    pageConfigs.remove(id); pageTextData.remove(id); pageElementData.remove(id); pageAnnexureValues.remove(id); pageB1Values.remove(id); pageNumberOverrides.remove(id)
-                    if (reportItems.isEmpty()) {
-                        val newItem = ReportPageItem(graphId = -200.0, type = "Blank", data = emptyList())
-                        reportItems.add(newItem)
-                        pageConfigs[newItem.id] = ReportConfig(); pageTextData[newItem.id] = mutableStateListOf(); pageElementData[newItem.id] = mutableStateListOf(); pageAnnexureValues[newItem.id] = ""; pageB1Values[newItem.id] = ""; pageNumberOverrides[newItem.id] = "1"
-                    }
-                    activePageIndex = activePageIndex.coerceAtMost(reportItems.lastIndex)
-                }
-            }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Delete, "Delete Page", tint = Color.Red, modifier = Modifier.size(16.dp)) }
-
-            Spacer(Modifier.weight(1f))
-            Text("-", color = Color.White, modifier = Modifier.clickable { if(zoomPercent>30) zoomPercent-=5 }.padding(horizontal=4.dp))
-            Slider(value = zoomPercent, onValueChange = { zoomPercent = it }, valueRange = 30f..200f, modifier = Modifier.width(100.dp), colors = SliderDefaults.colors(thumbColor = Color.White, activeTrackColor = Color.White))
-            Text("+", color = Color.White, modifier = Modifier.clickable { if(zoomPercent<200) zoomPercent+=5 }.padding(horizontal=4.dp))
-            Text("${zoomPercent.toInt()}%", color = Color.White, fontSize = 11.sp, modifier = Modifier.width(30.dp))
         }
     }
 }

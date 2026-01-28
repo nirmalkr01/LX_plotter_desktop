@@ -35,7 +35,7 @@ import java.net.URL
 import kotlin.math.abs
 
 // --- CONFIGURATION ---
-const val CURRENT_APP_VERSION = "1.0.2"
+const val CURRENT_APP_VERSION = "1.0.3"
 const val UPDATE_JSON_URL = "https://lx-plotter-app-mxd1.vercel.app/version.json"
 
 fun main() = application {

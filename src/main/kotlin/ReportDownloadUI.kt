@@ -11,6 +11,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -82,9 +84,6 @@ fun ReportDownloadScreen(
         else riverData.map { it.chainage }.distinct().sorted()
     }
 
-    // Default activeGraphId logic:
-    // If we are in L-Section, force it to -1.0 immediately.
-    // If X-Section, pick the first available or -100.0 if empty.
     var activeGraphId by remember { mutableStateOf(
         if(initialGraphType == "L-Section") -1.0
         else if(availableGraphs.isNotEmpty()) availableGraphs.first() else -100.0
@@ -97,107 +96,96 @@ fun ReportDownloadScreen(
     var selectedPartition by remember { mutableStateOf<PartitionSlot?>(null) }
     var isPartitionModeEnabled by remember { mutableStateOf(false) }
 
-    // Zoom state for report download screen preview (also starts at 60% if desired, or 100%)
-    var reportPreviewZoom by remember { mutableStateOf(0.6f) }
+    // Panel Visibility State (DEFAULT CLOSED)
+    var isLeftPanelVisible by remember { mutableStateOf(false) }
+    var isMiddlePanelVisible by remember { mutableStateOf(false) }
 
     Column(modifier = Modifier.fillMaxSize().background(Color(0xFFF0F0F0))) {
-        Surface(shadowElevation = 2.dp, color = MaterialTheme.colorScheme.surface) {
-            Row(modifier = Modifier.fillMaxWidth().height(50.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
-                Spacer(Modifier.width(16.dp))
-                Text("Report Download Center", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-
-                // Add zoom controls here as well if needed, or keep it fixed.
-                // Assuming "Main Page" refers to the initial screen with the full editor.
-                // If this screen needs zoom, we can add it:
-                /*
-                Spacer(Modifier.width(16.dp))
-                IconButton(onClick = { reportPreviewZoom = (reportPreviewZoom - 0.1f).coerceAtLeast(0.2f) }) { Icon(Icons.Default.ZoomOut, "Out") }
-                Text("${(reportPreviewZoom * 100).toInt()}%", fontSize = 12.sp)
-                IconButton(onClick = { reportPreviewZoom = (reportPreviewZoom + 0.1f).coerceAtMost(5.0f) }) { Icon(Icons.Default.ZoomIn, "In") }
-                */
-
-                Spacer(Modifier.weight(1f))
-                if(statusMsg.isNotEmpty()) Text(statusMsg, fontSize = 12.sp, color = Color(0xFF006400))
-            }
-        }
         Row(modifier = Modifier.weight(1f).fillMaxWidth().padding(8.dp)) {
-            Card(modifier = Modifier.weight(0.15f).fillMaxHeight(), colors = CardDefaults.cardColors(containerColor = Color.White)) {
-                Column(modifier = Modifier.padding(8.dp)) {
-                    Text("1. Select Graph", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
-                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                    Row(modifier = Modifier.fillMaxWidth().height(32.dp).border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(4.dp))) {
-                        // X-SEC BUTTON
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight()
-                                .background(if(selectedGraphType == "X-Section") MaterialTheme.colorScheme.primary else Color.White)
-                                .clickable {
-                                    selectedGraphType = "X-Section"
-                                    // Reset activeGraphId to first chainage when switching to X-Sec
-                                    val xGraphs = riverData.map { it.chainage }.distinct().sorted()
-                                    activeGraphId = if(xGraphs.isNotEmpty()) xGraphs.first() else -100.0
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("X-Sec", color = if(selectedGraphType == "X-Section") Color.White else MaterialTheme.colorScheme.primary, fontSize = 11.sp)
+
+            // LEFT PANEL: SELECT GRAPH
+            if (isLeftPanelVisible) {
+                Card(modifier = Modifier.weight(0.15f).fillMaxHeight(), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                    Column(modifier = Modifier.padding(8.dp)) {
+                        Row(modifier = Modifier.fillMaxWidth().height(32.dp).border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(4.dp))) {
+                            // X-SEC BUTTON
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .background(if(selectedGraphType == "X-Section") MaterialTheme.colorScheme.primary else Color.White)
+                                    .clickable {
+                                        selectedGraphType = "X-Section"
+                                        val xGraphs = riverData.map { it.chainage }.distinct().sorted()
+                                        activeGraphId = if(xGraphs.isNotEmpty()) xGraphs.first() else -100.0
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("X-Sec", color = if(selectedGraphType == "X-Section") Color.White else MaterialTheme.colorScheme.primary, fontSize = 11.sp)
+                            }
+
+                            Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(MaterialTheme.colorScheme.primary))
+
+                            // L-SEC BUTTON
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .background(if(selectedGraphType == "L-Section") MaterialTheme.colorScheme.primary else Color.White)
+                                    .clickable {
+                                        selectedGraphType = "L-Section"
+                                        activeGraphId = -1.0
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("L-Sec", color = if(selectedGraphType == "L-Section") Color.White else MaterialTheme.colorScheme.primary, fontSize = 11.sp)
+                            }
                         }
+                        Spacer(Modifier.height(8.dp))
 
-                        Box(modifier = Modifier.width(1.dp).fillMaxHeight().background(MaterialTheme.colorScheme.primary))
-
-                        // L-SEC BUTTON
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight()
-                                .background(if(selectedGraphType == "L-Section") MaterialTheme.colorScheme.primary else Color.White)
-                                .clickable {
-                                    selectedGraphType = "L-Section"
-                                    activeGraphId = -1.0 // Immediately show L-Section
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("L-Sec", color = if(selectedGraphType == "L-Section") Color.White else MaterialTheme.colorScheme.primary, fontSize = 11.sp)
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-
-                    // Graph List (Only relevant for X-Section really, but kept generic)
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        items(availableGraphs) { id ->
-                            val label = if(id == -1.0) "L-Section Profile" else "Chainage ${id.toInt()} m"
-                            Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)).background(if (activeGraphId == id) MaterialTheme.colorScheme.primaryContainer else Color.Transparent).clickable { activeGraphId = id }.padding(vertical = 8.dp, horizontal = 4.dp)) { Text(label, fontSize = 12.sp, fontWeight = if(activeGraphId == id) FontWeight.Bold else FontWeight.Normal) }
+                        LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            items(availableGraphs) { id ->
+                                val label = if(id == -1.0) "L-Section Profile" else "Chainage ${id.toInt()} m"
+                                Row(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(4.dp)).background(if (activeGraphId == id) MaterialTheme.colorScheme.primaryContainer else Color.Transparent).clickable { activeGraphId = id }.padding(vertical = 8.dp, horizontal = 4.dp)) { Text(label, fontSize = 12.sp, fontWeight = if(activeGraphId == id) FontWeight.Bold else FontWeight.Normal) }
+                            }
                         }
                     }
                 }
+                Spacer(Modifier.width(8.dp))
             }
-            Spacer(Modifier.width(8.dp))
-            Box(Modifier.weight(0.35f)) {
-                ImagePanel(
-                    riverData, activeGraphId, startCh, endCh, selectedGraphType, lHScale, lVScale, xHScale, xVScale,
-                    showPre, showPost, preColor, postColor, preDotted, postDotted, preWidth, postWidth, preShowPoints, postShowPoints, showGrid,
-                    selectedPartitionSlot = selectedPartition,
-                    onAddToReport = { newElement ->
-                        if (isPartitionModeEnabled && selectedPartition != null) {
-                            if (reportItems.isNotEmpty() && activeFilePanelPageIndex < reportItems.size) {
-                                val activePageId = reportItems[activeFilePanelPageIndex].id
-                                if (!pageElementData.containsKey(activePageId)) pageElementData[activePageId] = mutableStateListOf()
-                                pageElementData[activePageId]?.add(newElement)
-                                selectedPartition = null
-                                statusMsg = "Added Graph to Page ${activeFilePanelPageIndex + 1}"
-                            } else {
-                                statusMsg = "No active page! Create a page in File View first."
-                            }
-                        } else {
-                            statusMsg = "Enable Grid Mode & Select a Slot First!"
-                        }
-                    },
-                    onStatusChange = { statusMsg = it }
-                )
+
+            // MIDDLE PANEL: IMAGE VIEW
+            if (isMiddlePanelVisible) {
+                Box(Modifier.weight(0.35f).fillMaxHeight()) {
+                    Column {
+                        ImagePanel(
+                            riverData, activeGraphId, startCh, endCh, selectedGraphType, lHScale, lVScale, xHScale, xVScale,
+                            showPre, showPost, preColor, postColor, preDotted, postDotted, preWidth, postWidth, preShowPoints, postShowPoints, showGrid,
+                            selectedPartitionSlot = selectedPartition,
+                            onAddToReport = { newElement ->
+                                if (isPartitionModeEnabled && selectedPartition != null) {
+                                    if (reportItems.isNotEmpty() && activeFilePanelPageIndex < reportItems.size) {
+                                        val activePageId = reportItems[activeFilePanelPageIndex].id
+                                        if (!pageElementData.containsKey(activePageId)) pageElementData[activePageId] = mutableStateListOf()
+                                        pageElementData[activePageId]?.add(newElement)
+                                        selectedPartition = null
+                                        statusMsg = "Added Graph to Page ${activeFilePanelPageIndex + 1}"
+                                    } else {
+                                        statusMsg = "No active page! Create a page in File View first."
+                                    }
+                                } else {
+                                    statusMsg = "Enable Grid Mode & Select a Slot First!"
+                                }
+                            },
+                            onStatusChange = { statusMsg = it }
+                        )
+                    }
+                }
+                Spacer(Modifier.width(8.dp))
             }
-            Spacer(Modifier.width(8.dp))
-            Box(Modifier.weight(0.5f)) {
+
+            // RIGHT PANEL: REPORT DESIGNER (FilePanel)
+            Box(Modifier.weight(0.5f).fillMaxHeight()) {
                 FilePanel(
                     reportItems, lHScale, lVScale, xHScale, xVScale,
                     showPre, showPost, preColor, postColor, preDotted, postDotted, preWidth, postWidth, preShowPoints, postShowPoints, showGrid,
@@ -208,7 +196,14 @@ fun ReportDownloadScreen(
                     onPartitionSelected = { selectedPartition = it },
                     activeGraphType = selectedGraphType,
                     isPartitionModeEnabled = isPartitionModeEnabled,
-                    onPartitionModeToggle = { isPartitionModeEnabled = it; if(!it) selectedPartition = null }
+                    onPartitionModeToggle = { isPartitionModeEnabled = it; if(!it) selectedPartition = null },
+
+                    // NEW PARAMS for Navigation & Toggles
+                    onBack = onBack,
+                    isLeftPanelVisible = isLeftPanelVisible,
+                    onLeftPanelToggle = { isLeftPanelVisible = !isLeftPanelVisible },
+                    isMiddlePanelVisible = isMiddlePanelVisible,
+                    onMiddlePanelToggle = { isMiddlePanelVisible = !isMiddlePanelVisible }
                 )
             }
         }
@@ -233,8 +228,6 @@ fun calculateGraphDimensions(data: List<RiverPoint>, type: String, hScale: Doubl
     val topPad = 50.0
     val graphH = (maxY - minY) * pxPerMY
 
-    // FIX: Table height in drawing is 3 * 60 = 180. Footer is handled via internalChFooterY logic but generally needs space.
-    // We add a safety buffer to ensure auto-fit doesn't cut off text.
     val tableRowHeight = 60.0
     val tableTotalH = 3 * tableRowHeight
     val footerBuffer = 50.0 // Space for Chainage Label
@@ -305,7 +298,6 @@ fun GraphPageCanvas(
         // AUTO FIT LOGIC:
         val scaleFit = if(isTransparentOverlay) {
             val dims = calculateGraphDimensions(data, type, hScale, vScale)
-            // Ensure we fit fully inside the box (slot)
             minOf(size.width / dims.width.toFloat(), size.height / dims.height.toFloat())
         } else {
             minOf(size.width / pageW.toFloat(), size.height / pageH.toFloat())
@@ -419,130 +411,60 @@ fun GraphPageCanvas(
                 if(showPre) drawSeries({it.preMonsoon}, preColor, preDotted, preWidth, preShowPoints)
                 if(showPost) drawSeries({it.postMonsoon}, postColor, postDotted, postWidth, postShowPoints)
 
-                // ============================================
-                // NEW: L-SECTION ANNOTATIONS (ARROW & TEXT)
-                // ============================================
+                // L-SECTION ANNOTATIONS
                 if (type == "L-Section" && sortedData.isNotEmpty()) {
-                    // Calculate a default "middle" position logic
-                    // We take the middle data point index to find a reasonable X,Y to place the arrow tip.
                     val midIndex = sortedData.size / 2
                     val midPoint = sortedData.getOrElse(midIndex) { sortedData.first() }
-
                     val defX = mX(midPoint.chainage)
 
-                    // --- PRE MONSOON ARROW & TEXT ---
                     if (showPre) {
                         val defY = mY(midPoint.preMonsoon)
-
-                        // 1. Arrow (Index -10)
                         if (!deletedRiverIndices.contains(-10)) {
                             val userOffset = riverOffsets[-10] ?: Offset.Zero
                             val tipX = defX + userOffset.x
                             val tipY = defY + userOffset.y
-                            val size = riverTextSize * 2.5f // Scale based on size slider (approx 50px default)
-
+                            val size = riverTextSize * 2.5f
                             val isSelected = selectedItem is InteractiveItem.LSecPreArrow
-                            val color = if(isSelected) Color.Magenta else Color.Blue // Blue requested, Magenta when selected
-
-                            // Left Elbow Down Arrow Logic:
-                            // Start (Top Right) -> Left (to Top Left) -> Down (to Tip)
-                            // Visual:  Text Here ----+
-                            //                    |
-                            //                    V
-
-                            val path = Path().apply {
-                                moveTo(tipX + size, tipY - size) // Top Right Start
-                                lineTo(tipX, tipY - size)        // Elbow (Top Left)
-                                lineTo(tipX, tipY)               // Tip (Bottom Left)
-                            }
-
-                            // Draw Line
+                            val color = if(isSelected) Color.Magenta else Color.Blue
+                            val path = Path().apply { moveTo(tipX + size, tipY - size); lineTo(tipX, tipY - size); lineTo(tipX, tipY) }
                             drawPath(path, color, style = Stroke(width = 3f))
-
-                            // Draw Arrowhead at tip (tipX, tipY) pointing down
-                            val headPath = Path().apply {
-                                moveTo(tipX, tipY)
-                                lineTo(tipX - size * 0.2f, tipY - size * 0.2f)
-                                lineTo(tipX + size * 0.2f, tipY - size * 0.2f)
-                                close()
-                            }
+                            val headPath = Path().apply { moveTo(tipX, tipY); lineTo(tipX - size * 0.2f, tipY - size * 0.2f); lineTo(tipX + size * 0.2f, tipY - size * 0.2f); close() }
                             drawPath(headPath, color)
                         }
-
-                        // 2. Text (Index -11)
                         if (!deletedRiverIndices.contains(-11)) {
                             val userOffset = riverOffsets[-11] ?: Offset.Zero
                             val size = riverTextSize * 2.5f
-                            // Default text pos: Near the start of the arrow tail
                             val textX = defX + size + 5f + userOffset.x
-                            val textY = defY - size - 10f + userOffset.y // slightly above the tail line
-
+                            val textY = defY - size - 10f + userOffset.y
                             val isSelected = selectedItem is InteractiveItem.LSecPreText
                             val textColor = if(isSelected) Color.Magenta else Color.Black
-
-                            val txtLayout = textMeasurer.measure(
-                                "L-section of Pre Monsoon",
-                                style = TextStyle(
-                                    fontFamily = FontFamily.Serif,
-                                    fontSize = riverTextSize.sp,
-                                    color = textColor,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            )
+                            val txtLayout = textMeasurer.measure("L-section of Pre Monsoon", style = TextStyle(fontFamily = FontFamily.Serif, fontSize = riverTextSize.sp, color = textColor, fontWeight = FontWeight.Bold))
                             drawText(txtLayout, topLeft = Offset(textX, textY))
                         }
                     }
 
-                    // --- POST MONSOON ARROW & TEXT ---
                     if (showPost) {
                         val defY = mY(midPoint.postMonsoon)
-
-                        // 1. Arrow (Index -20)
                         if (!deletedRiverIndices.contains(-20)) {
                             val userOffset = riverOffsets[-20] ?: Offset.Zero
-                            // Shift default X slightly so they don't overlap perfectly if lines represent same value
                             val tipX = defX + 50f + userOffset.x
                             val tipY = defY + userOffset.y
                             val size = riverTextSize * 2.5f
-
                             val isSelected = selectedItem is InteractiveItem.LSecPostArrow
-                            val color = if(isSelected) Color.Magenta else Color.Red // Red requested
-
-                            val path = Path().apply {
-                                moveTo(tipX + size, tipY - size)
-                                lineTo(tipX, tipY - size)
-                                lineTo(tipX, tipY)
-                            }
+                            val color = if(isSelected) Color.Magenta else Color.Red
+                            val path = Path().apply { moveTo(tipX + size, tipY - size); lineTo(tipX, tipY - size); lineTo(tipX, tipY) }
                             drawPath(path, color, style = Stroke(width = 3f))
-
-                            val headPath = Path().apply {
-                                moveTo(tipX, tipY)
-                                lineTo(tipX - size * 0.2f, tipY - size * 0.2f)
-                                lineTo(tipX + size * 0.2f, tipY - size * 0.2f)
-                                close()
-                            }
+                            val headPath = Path().apply { moveTo(tipX, tipY); lineTo(tipX - size * 0.2f, tipY - size * 0.2f); lineTo(tipX + size * 0.2f, tipY - size * 0.2f); close() }
                             drawPath(headPath, color)
                         }
-
-                        // 2. Text (Index -21)
                         if (!deletedRiverIndices.contains(-21)) {
                             val userOffset = riverOffsets[-21] ?: Offset.Zero
                             val size = riverTextSize * 2.5f
                             val textX = defX + 50f + size + 5f + userOffset.x
                             val textY = defY - size - 10f + userOffset.y
-
                             val isSelected = selectedItem is InteractiveItem.LSecPostText
                             val textColor = if(isSelected) Color.Magenta else Color.Black
-
-                            val txtLayout = textMeasurer.measure(
-                                "L-section of Post Monsoon",
-                                style = TextStyle(
-                                    fontFamily = FontFamily.Serif,
-                                    fontSize = riverTextSize.sp,
-                                    color = textColor,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            )
+                            val txtLayout = textMeasurer.measure("L-section of Post Monsoon", style = TextStyle(fontFamily = FontFamily.Serif, fontSize = riverTextSize.sp, color = textColor, fontWeight = FontWeight.Bold))
                             drawText(txtLayout, topLeft = Offset(textX, textY))
                         }
                     }
