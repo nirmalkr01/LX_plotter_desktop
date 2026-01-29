@@ -856,7 +856,7 @@ fun FilePanel(
                                     }
                                 )
 
-                                // --- DRAW PARTITION OVERLAY ---
+                                // --- DRAW PARTITION OVERLAY (FIXED: USE DENSITY PIXELS) ---
                                 if (isActive && isPartitionModeEnabled) {
                                     val config = pageConfigs[item.id] ?: ReportConfig()
                                     // Fetch Paper Dimensions based on user selection
@@ -866,24 +866,33 @@ fun FilePanel(
                                     // Calculate pixels per mm based on current zoom
                                     val pxPerMm = 1.5f * (zoomPercent / 100f)
 
-                                    val paperW = widthMm * pxPerMm
-                                    val paperH = heightMm * pxPerMm
+                                    // FIX START: Convert conceptual pixels to Device Pixels for Canvas
+                                    val paperWidthPx = with(density) { (widthMm * pxPerMm).dp.toPx() }
+                                    val paperHeightPx = with(density) { (heightMm * pxPerMm).dp.toPx() }
 
-                                    // CALCULATE SLOTS
-                                    val partitions = remember(paperW, paperH, config, activeGraphType, selectedLayoutType) {
+                                    // Convert margins to Device Pixels
+                                    val marginTopPx = with(density) { (config.marginTop * pxPerMm).dp.toPx() }
+                                    val marginBottomPx = with(density) { (config.marginBottom * pxPerMm).dp.toPx() }
+                                    val marginLeftPx = with(density) { (config.marginLeft * pxPerMm).dp.toPx() }
+                                    val marginRightPx = with(density) { (config.marginRight * pxPerMm).dp.toPx() }
+                                    val pxPerMmDevice = with(density) { pxPerMm.dp.toPx() }
+
+                                    // CALCULATE SLOTS using device pixels
+                                    val partitions = remember(paperWidthPx, paperHeightPx, config, activeGraphType, selectedLayoutType) {
                                         calculatePartitions(
-                                            paperWidthPx = paperW,
-                                            paperHeightPx = paperH,
-                                            marginTopPx = config.marginTop * pxPerMm,
-                                            marginBottomPx = config.marginBottom * pxPerMm,
-                                            marginLeftPx = config.marginLeft * pxPerMm,
-                                            marginRightPx = config.marginRight * pxPerMm,
+                                            paperWidthPx = paperWidthPx,
+                                            paperHeightPx = paperHeightPx,
+                                            marginTopPx = marginTopPx,
+                                            marginBottomPx = marginBottomPx,
+                                            marginLeftPx = marginLeftPx,
+                                            marginRightPx = marginRightPx,
                                             layoutType = selectedLayoutType,
                                             graphType = activeGraphType,
                                             config = config,
-                                            pxPerMm = pxPerMm
+                                            pxPerMm = pxPerMmDevice
                                         )
                                     }
+                                    // FIX END
 
                                     // DRAW SLOTS
                                     Canvas(modifier = Modifier.matchParentSize()) {

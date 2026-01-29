@@ -120,6 +120,9 @@ fun ImagePanel(
     // NEW: L-Section Specific Size (Arrow/Text) - Defaults to roughly "0.5" relative
     var lSecItemSize by remember { mutableStateOf(20f) }
 
+    // --- ZOOM STATE ---
+    var imageZoom by remember { mutableStateOf(1.0f) }
+
     // --- INTERACTIVE ELEMENT STATE ---
     val riverOffsets = remember { mutableStateMapOf<Int, Offset>() }
     val blueLineOffsets = remember { mutableStateMapOf<Int, Offset>() }
@@ -166,6 +169,31 @@ fun ImagePanel(
                 ImagePanelRibbonTab("Edit", activeTab == "Edit") { activeTab = "Edit"; if(!isRibbonOpen) isRibbonOpen = true }
                 ImagePanelRibbonTab("Graph", activeTab == "Graph") { activeTab = "Graph"; if(!isRibbonOpen) isRibbonOpen = true }
 
+                Spacer(Modifier.weight(1f))
+
+                // Zoom Controls
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ImagePanelIconButton(
+                        onClick = { imageZoom = (imageZoom - 0.1f).coerceAtLeast(0.1f) },
+                        icon = Icons.Default.Remove,
+                        tooltip = "Zoom Out"
+                    )
+                    Text(
+                        text = "${(imageZoom * 100).toInt()}%",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.width(36.dp),
+                        textAlign = TextAlign.Center
+                    )
+                    ImagePanelIconButton(
+                        onClick = { imageZoom = (imageZoom + 0.1f).coerceAtMost(5.0f) },
+                        icon = Icons.Default.Add,
+                        tooltip = "Zoom In"
+                    )
+                }
+
+                Spacer(Modifier.width(8.dp))
+                Box(Modifier.width(1.dp).height(20.dp).background(Color.LightGray))
                 Spacer(Modifier.width(8.dp))
 
                 // Collapse Button
@@ -174,8 +202,6 @@ fun ImagePanel(
                     icon = if(isRibbonOpen) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                     tooltip = if(isRibbonOpen) "Collapse" else "Expand"
                 )
-
-                Spacer(Modifier.weight(1f))
             }
 
             // 2. RIBBON CONTENT
@@ -330,20 +356,20 @@ fun ImagePanel(
                                         DropdownMenuItem(text = { Text("None", fontSize = 11.sp) }, onClick = { selectedItem = null; expanded = false })
 
                                         if (selectedGraphType == "X-Section" && leftBankIndex != -1 && rightBankIndex != -1) {
-                                            Divider()
+                                            HorizontalDivider()
                                             DropdownMenuItem(text = { Text("Left River Text", fontSize = 11.sp) }, onClick = { selectedItem = InteractiveItem.RiverText(leftBankIndex, true); expanded = false })
                                             DropdownMenuItem(text = { Text("Right River Text", fontSize = 11.sp) }, onClick = { selectedItem = InteractiveItem.RiverText(rightBankIndex, false); expanded = false })
-                                            Divider()
+                                            HorizontalDivider()
                                             DropdownMenuItem(text = { Text("Left Blue Line", fontSize = 11.sp) }, onClick = { selectedItem = InteractiveItem.BlueLine(leftBankIndex, true); expanded = false })
                                             DropdownMenuItem(text = { Text("Right Blue Line", fontSize = 11.sp) }, onClick = { selectedItem = InteractiveItem.BlueLine(rightBankIndex, false); expanded = false })
-                                            Divider()
+                                            HorizontalDivider()
                                             DropdownMenuItem(text = { Text("Chainage Label", fontSize = 11.sp) }, onClick = { selectedItem = InteractiveItem.ChainageLabel; expanded = false })
                                         }
                                         if (selectedGraphType == "L-Section") {
-                                            Divider()
+                                            HorizontalDivider()
                                             DropdownMenuItem(text = { Text("Pre Arrow", fontSize = 11.sp) }, onClick = { selectedItem = InteractiveItem.LSecPreArrow; expanded = false })
                                             DropdownMenuItem(text = { Text("Pre Label", fontSize = 11.sp) }, onClick = { selectedItem = InteractiveItem.LSecPreText; expanded = false })
-                                            Divider()
+                                            HorizontalDivider()
                                             DropdownMenuItem(text = { Text("Post Arrow", fontSize = 11.sp) }, onClick = { selectedItem = InteractiveItem.LSecPostArrow; expanded = false })
                                             DropdownMenuItem(text = { Text("Post Label", fontSize = 11.sp) }, onClick = { selectedItem = InteractiveItem.LSecPostText; expanded = false })
                                         }
@@ -368,7 +394,7 @@ fun ImagePanel(
                 }
             }
 
-            Divider(color = Color(0xFFE0E0E0))
+            HorizontalDivider(color = Color(0xFFE0E0E0))
 
             // 3. CANVAS AREA (Scrollable & Centered)
             BoxWithConstraints(
@@ -388,12 +414,15 @@ fun ImagePanel(
                         calculateGraphDimensions(viewData, selectedGraphType, hScale, vScale)
                     }
 
-                    val contentWidth = maxOf(100.dp, graphDims.width.dp)
-                    val contentHeight = maxOf(100.dp, graphDims.height.dp)
+                    // Apply zoom to the content dimensions
+                    val contentWidth = maxOf(100.dp, (graphDims.width * imageZoom).dp)
+                    val contentHeight = maxOf(100.dp, (graphDims.height * imageZoom).dp)
 
                     // Centering Logic
                     val viewportWidth = maxWidth
                     val viewportHeight = maxHeight
+                    // Buffer to ensure image isn't stuck to edge
+                    val buffer = 100.dp
 
                     Box(
                         modifier = Modifier
@@ -404,17 +433,19 @@ fun ImagePanel(
                         // Wrapper to force at least viewport size for alignment
                         Box(
                             modifier = Modifier
-                                .width(maxOf(viewportWidth, contentWidth))
-                                .height(maxOf(viewportHeight, contentHeight)),
+                                .width(maxOf(viewportWidth, contentWidth + buffer))
+                                .height(maxOf(viewportHeight, contentHeight + buffer)),
                             contentAlignment = Alignment.Center
                         ) {
-                            Box(modifier = Modifier.size(contentWidth, contentHeight)) {
+                            Box(modifier = Modifier.size(contentWidth, contentHeight).background(Color.White)) {
                                 GraphPageCanvas(
                                     modifier = Modifier.fillMaxSize(), data = viewData, type = selectedGraphType,
                                     paperSize = PaperSize.A4, isLandscape = true, hScale = hScale, vScale = vScale, config = rawConfig,
                                     showPre = showPre, showPost = showPost, preColor = preColor, postColor = postColor,
                                     preDotted = preDotted, postDotted = postDotted, preWidth = preWidth, postWidth = postWidth,
                                     preShowPoints = preShowPoints, postShowPoints = postShowPoints, showGrid = showGrid, isRawView = true,
+                                    // ENABLE TRANSPARENT OVERLAY to enforce 1:1 scaling with calculated dimensions
+                                    isTransparentOverlay = true,
 
                                     datumSize = datumSize,
                                     axisLabelSize = axisSize,
@@ -466,7 +497,7 @@ fun ImagePanel(
 
             // 3.5 SPLIT CHIPS BAR (Sub-section above footer)
             if (selectedGraphType == "L-Section" && generatedSplits.isNotEmpty()) {
-                Divider()
+                HorizontalDivider()
                 Surface(
                     modifier = Modifier.fillMaxWidth().height(40.dp),
                     color = Color(0xFFFFF8E1)
