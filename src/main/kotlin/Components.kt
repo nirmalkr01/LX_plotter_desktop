@@ -75,6 +75,7 @@ fun HeaderIconButton(
 }
 
 // --- NEW UNIFIED HEADER ---
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun UnifiedAppHeader(
     status: String,
@@ -89,14 +90,17 @@ fun UnifiedAppHeader(
     onLoad: () -> Unit,
     onDownloadCsv: () -> Unit,
     onGenerateReport: () -> Unit,
-    onShowInstructions: () -> Unit
+    onShowInstructions: () -> Unit,
+    // NEW: Zoom Controls for Header
+    zoomLevel: Float,
+    onZoomChange: (Float) -> Unit
 ) {
     var showDownloadMenu by remember { mutableStateOf(false) }
 
     Surface(
-        color = MaterialTheme.colorScheme.primaryContainer,
-        modifier = Modifier.fillMaxWidth().height(50.dp),
-        shadowElevation = 4.dp
+        color = Color(0xFFF3F2F1), // Professional Light Gray
+        modifier = Modifier.fillMaxWidth().height(50.dp).customBorder(1.dp, Color(0xFFE0E0E0), bottom = true),
+        shadowElevation = 0.dp // Flat look like Office
     ) {
         Row(
             modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
@@ -107,60 +111,89 @@ fun UnifiedAppHeader(
                 onClick = onToggleHistory,
                 icon = if(isHistoryVisible) Icons.Default.MenuOpen else Icons.Default.Menu,
                 tooltip = "Toggle History Panel",
-                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                tint = Color.DarkGray
             )
 
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(16.dp))
 
-            // 2. Title
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Timeline, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
-                Spacer(Modifier.width(8.dp))
-                Text("LX Plotter", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
-            }
-
-            VerticalDivider(Modifier.height(24.dp).padding(horizontal = 12.dp))
-
-            // 3. Ribbon Tabs (Inline)
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            // 2. Ribbon Tabs (Inline, clean text)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                 ControlGroup.entries.forEach { group ->
                     val isActive = activeGroup == group && isRibbonOpen
-                    val label = group.name.replaceFirstChar { it.titlecase() }
+                    // FIXED: Lowercase first to ensure Title Case works (PROFILE -> profile -> Profile)
+                    val label = group.name.lowercase().replaceFirstChar { it.titlecase() }
 
                     TextButton(
                         onClick = { onGroupSelected(group) },
                         colors = ButtonDefaults.textButtonColors(
-                            contentColor = if (isActive) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
-                            containerColor = if (isActive) Color.White.copy(alpha = 0.2f) else Color.Transparent
+                            contentColor = if (isActive) Color(0xFF2B579A) else Color.DarkGray,
+                            containerColor = if (isActive) Color.White else Color.Transparent
                         ),
-                        shape = RoundedCornerShape(4.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                        modifier = Modifier.height(32.dp)
+                        shape = RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                        modifier = Modifier.height(36.dp)
                     ) {
-                        Text(label, fontWeight = if(isActive) FontWeight.Bold else FontWeight.Normal)
+                        Text(label, fontWeight = if(isActive) FontWeight.Bold else FontWeight.Normal, fontSize = 13.sp)
                     }
                 }
 
-                // Ribbon Collapse Toggle
-                Spacer(Modifier.width(4.dp))
-                HeaderIconButton(
-                    onClick = onToggleRibbon,
-                    icon = if(isRibbonOpen) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                    tooltip = if(isRibbonOpen) "Collapse Ribbon" else "Expand Ribbon",
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
-                )
+                // Ribbon Collapse Toggle (Added Tooltip)
+                TooltipArea(
+                    tooltip = {
+                        Surface(
+                            modifier = Modifier.padding(top = 4.dp),
+                            color = Color.Black.copy(alpha = 0.8f),
+                            shape = RoundedCornerShape(4.dp),
+                            shadowElevation = 4.dp
+                        ) {
+                            Text(
+                                text = if(isRibbonOpen) "Collapse Ribbon" else "Expand Ribbon",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    },
+                    delayMillis = 500
+                ) {
+                    IconButton(onClick = onToggleRibbon, modifier = Modifier.size(28.dp)) {
+                        Icon(
+                            if (isRibbonOpen) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                            null,
+                            tint = Color.Gray,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
             }
 
             Spacer(Modifier.weight(1f))
 
-            // 4. File Actions
+            // 3. File Actions & Zoom
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                 // Status Text
-                Text(status, fontSize = 11.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f), maxLines = 1)
-
-                Spacer(Modifier.width(8.dp))
+                Text(status, fontSize = 11.sp, color = Color.Gray, maxLines = 1, modifier = Modifier.padding(end = 8.dp))
 
                 NotificationSection(errors, onNavigateToError)
+
+                VerticalDivider(Modifier.height(20.dp).padding(horizontal = 4.dp))
+
+                // ZOOM CONTROL (Matched to File Panel)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    HeaderIconButton(
+                        onClick = { onZoomChange((zoomLevel - 0.1f).coerceAtLeast(0.2f)) },
+                        icon = Icons.Default.Remove,
+                        tooltip = "Out",
+                        tint = Color.DarkGray
+                    )
+                    Text("${(zoomLevel * 100).toInt()}%", fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(36.dp), textAlign = TextAlign.Center)
+                    HeaderIconButton(
+                        onClick = { onZoomChange((zoomLevel + 0.1f).coerceAtMost(5.0f)) },
+                        icon = Icons.Default.Add,
+                        tooltip = "In",
+                        tint = Color.DarkGray
+                    )
+                }
 
                 VerticalDivider(Modifier.height(20.dp).padding(horizontal = 4.dp))
 
@@ -168,7 +201,7 @@ fun UnifiedAppHeader(
                     onClick = onLoad,
                     icon = Icons.Default.Add, // Changed to + icon
                     tooltip = "Load New CSV File",
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                    tint = Color(0xFF2B579A) // Professional Blue
                 )
 
                 Box {
@@ -176,7 +209,7 @@ fun UnifiedAppHeader(
                         onClick = { showDownloadMenu = true },
                         icon = Icons.Default.SaveAlt,
                         tooltip = "Download / Report",
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        tint = Color(0xFF2E7D32)
                     )
                     DropdownMenu(expanded = showDownloadMenu, onDismissRequest = { showDownloadMenu = false }) {
                         DropdownMenuItem(
@@ -196,7 +229,7 @@ fun UnifiedAppHeader(
                     onClick = onShowInstructions,
                     icon = Icons.Default.HelpOutline,
                     tooltip = "Help",
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                    tint = Color.Gray
                 )
             }
         }
@@ -205,27 +238,48 @@ fun UnifiedAppHeader(
 
 // Deprecated AppHeader replaced by UnifiedAppHeader, keeping NotificationSection and others
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun NotificationSection(errors: List<DataError>, onNavigate: (Double) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     val hasErrors = errors.isNotEmpty()
 
     Box {
-        IconButton(onClick = { if (hasErrors) expanded = true }) {
-            BadgedBox(
-                badge = {
-                    if (hasErrors) {
-                        Badge(containerColor = Color.Red) {
-                            Text(errors.size.toString(), color = Color.White)
+        // Wrapped Notification Icon in Tooltip
+        TooltipArea(
+            tooltip = {
+                Surface(
+                    modifier = Modifier.padding(top = 4.dp),
+                    color = Color.Black.copy(alpha = 0.8f),
+                    shape = RoundedCornerShape(4.dp),
+                    shadowElevation = 4.dp
+                ) {
+                    Text(
+                        text = "Notifications",
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            },
+            delayMillis = 500
+        ) {
+            IconButton(onClick = { if (hasErrors) expanded = true }) {
+                BadgedBox(
+                    badge = {
+                        if (hasErrors) {
+                            Badge(containerColor = Color.Red) {
+                                Text(errors.size.toString(), color = Color.White)
+                            }
                         }
                     }
+                ) {
+                    Icon(
+                        imageVector = if (hasErrors) Icons.Default.NotificationsActive else Icons.Default.Notifications,
+                        contentDescription = "Notifications",
+                        tint = if (hasErrors) Color.Red else Color.Gray
+                    )
                 }
-            ) {
-                Icon(
-                    imageVector = if (hasErrors) Icons.Default.NotificationsActive else Icons.Default.Notifications,
-                    contentDescription = "Notifications",
-                    tint = if (hasErrors) Color.Red else MaterialTheme.colorScheme.onPrimaryContainer
-                )
             }
         }
 
@@ -425,11 +479,11 @@ fun InstructionDialog(onDismiss: () -> Unit) {
 fun LeftPanel(history: List<String>, onHistoryItemClick: (String) -> Unit, onDeleteHistoryItem: (String) -> Unit) {
     val borderColor = MaterialTheme.colorScheme.outlineVariant
     Column(
-        modifier = Modifier.width(260.dp).fillMaxHeight().background(MaterialTheme.colorScheme.surface)
+        modifier = Modifier.width(260.dp).fillMaxHeight().background(Color(0xFFF8F9FA)) // Professional Gray
             .drawBehind { drawLine(borderColor, Offset(size.width, 0f), Offset(size.width, size.height), 1.dp.toPx()) }
             .padding(12.dp)
     ) {
-        Text("History", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+        Text("History", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFF2B579A))
         Spacer(Modifier.height(12.dp))
         if (history.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("No recent files", fontSize = 12.sp, color = Color.Gray) }
@@ -447,12 +501,13 @@ fun HistoryItemRow(path: String, onClick: (String) -> Unit, onDelete: (String) -
     var showMenu by remember { mutableStateOf(false) }
     Card(
         shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        colors = CardDefaults.cardColors(containerColor = Color.White), // White background
+        border = BorderStroke(1.dp, Color(0xFFE0E0E0)),
         modifier = Modifier.fillMaxWidth().clickable { onClick(path) }
     ) {
         Row(modifier = Modifier.padding(8.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.InsertDriveFile, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.secondary)
+                Icon(Icons.Default.InsertDriveFile, null, modifier = Modifier.size(18.dp), tint = Color(0xFF2B579A))
                 Spacer(Modifier.width(8.dp))
                 Column {
                     Text(file.name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
@@ -490,10 +545,10 @@ fun CompactDataTable(
         modifier = Modifier.fillMaxWidth().height(182.dp).border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(4.dp)).background(Color.White, RoundedCornerShape(4.dp))
     ) {
         Column(
-            modifier = Modifier.width(160.dp).fillMaxHeight().background(MaterialTheme.colorScheme.surfaceContainerLow).customBorder(1.dp, MaterialTheme.colorScheme.outlineVariant, end = true).padding(bottom = 12.dp)
+            modifier = Modifier.width(160.dp).fillMaxHeight().background(Color(0xFFF8F9FA)).customBorder(1.dp, MaterialTheme.colorScheme.outlineVariant, end = true).padding(bottom = 12.dp)
         ) {
             Box(
-                modifier = Modifier.fillMaxWidth().height(32.dp).customBorder(0.5.dp, Color.LightGray.copy(alpha = 0.5f), bottom = true).background(Color.LightGray.copy(alpha = 0.2f)),
+                modifier = Modifier.fillMaxWidth().height(32.dp).customBorder(0.5.dp, Color.LightGray.copy(alpha = 0.5f), bottom = true).background(Color(0xFFEEEEEE)),
                 contentAlignment = Alignment.CenterStart
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -501,7 +556,8 @@ fun CompactDataTable(
                         checked = isManualMode,
                         onCheckedChange = if (!isLSection) onManualModeToggle else null,
                         enabled = !isLSection,
-                        modifier = Modifier.scale(0.7f)
+                        modifier = Modifier.scale(0.7f),
+                        colors = CheckboxDefaults.colors(checkedColor = Color(0xFF2B579A))
                     )
                     Text(
                         if(isLSection) "Read-Only" else "Manual Mode",
@@ -525,7 +581,7 @@ fun CompactDataTable(
 
                     Column(modifier = Modifier.width(90.dp).fillMaxHeight()) {
                         Box(
-                            modifier = Modifier.fillMaxWidth().height(32.dp).customBorder(0.5.dp, Color.LightGray.copy(alpha = 0.5f), bottom = true, start = true).background(Color.LightGray.copy(alpha = 0.2f)),
+                            modifier = Modifier.fillMaxWidth().height(32.dp).customBorder(0.5.dp, Color.LightGray.copy(alpha = 0.5f), bottom = true, start = true).background(Color(0xFFEEEEEE)),
                             contentAlignment = Alignment.Center
                         ) {
                             if (point.isZeroPoint) {
@@ -580,7 +636,8 @@ fun EditableDataCell(text: String, color: Color, isEditable: Boolean, highlightE
     Box(
         modifier = Modifier.fillMaxWidth().height(32.dp)
             .customBorder(0.5.dp, Color.LightGray.copy(alpha = 0.5f), bottom = true, start = true)
-            .background(if (highlightError) Color.Red.copy(alpha = 0.1f) else Color.Transparent)
+            // Remove Pink: Use very light red for error, transparent otherwise
+            .background(if (highlightError) Color(0xFFFFEBEE) else Color.Transparent)
             .clickable(enabled = isEditable) { isEditing = true },
         contentAlignment = Alignment.Center
     ) {
@@ -590,7 +647,7 @@ fun EditableDataCell(text: String, color: Color, isEditable: Boolean, highlightE
                 onValueChange = { tempText = it },
                 singleLine = true,
                 textStyle = androidx.compose.ui.text.TextStyle(fontSize = 11.sp, color = color, textAlign = TextAlign.Center),
-                modifier = Modifier.fillMaxWidth().background(Color.Yellow.copy(alpha = 0.3f)),
+                modifier = Modifier.fillMaxWidth().background(Color(0xFFFFF9C4)), // Light Yellow for edit
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = {
                     isEditing = false
@@ -606,7 +663,7 @@ fun EditableDataCell(text: String, color: Color, isEditable: Boolean, highlightE
 @Composable
 fun HeaderCell(text: String, color: Color, isTop: Boolean = false) {
     Box(
-        modifier = Modifier.fillMaxWidth().height(32.dp).customBorder(0.5.dp, Color.LightGray.copy(alpha = 0.5f), bottom = true).background(if (isTop) Color.LightGray.copy(alpha = 0.2f) else Color.Transparent),
+        modifier = Modifier.fillMaxWidth().height(32.dp).customBorder(0.5.dp, Color.LightGray.copy(alpha = 0.5f), bottom = true).background(if (isTop) Color(0xFFEEEEEE) else Color.Transparent),
         contentAlignment = Alignment.CenterStart
     ) {
         Text(text, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = color, modifier = Modifier.padding(start = 8.dp))
@@ -616,7 +673,7 @@ fun HeaderCell(text: String, color: Color, isTop: Boolean = false) {
 @Composable
 fun DataCell(text: String, color: Color, isTop: Boolean = false) {
     Box(
-        modifier = Modifier.fillMaxWidth().height(32.dp).customBorder(0.5.dp, Color.LightGray.copy(alpha = 0.5f), bottom = true, start = true).background(if (isTop) Color.LightGray.copy(alpha = 0.2f) else Color.Transparent),
+        modifier = Modifier.fillMaxWidth().height(32.dp).customBorder(0.5.dp, Color.LightGray.copy(alpha = 0.5f), bottom = true, start = true).background(if (isTop) Color(0xFFEEEEEE) else Color.Transparent),
         contentAlignment = Alignment.Center
     ) {
         Text(text, fontSize = 11.sp, color = color, textAlign = TextAlign.Center)
@@ -664,10 +721,12 @@ fun StyleSelector(
 @Composable
 fun ScaleInput(label: String, value: Double, onValueChange: (Double) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Text(label, fontSize = 11.sp)
+        // Fix Even placement: Use a fixed width for the label so inputs align vertically
+        Text(label, fontSize = 11.sp, modifier = Modifier.width(70.dp))
         Spacer(Modifier.width(4.dp))
         BasicTextField(
-            value = if (value == 0.0) "" else value.toInt().toString(),
+            // UPDATED: Allow 0.0 to display as "0" instead of blank string
+            value = value.toInt().toString(),
             onValueChange = { onValueChange(it.toDoubleOrNull() ?: 0.0) },
             textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, textAlign = TextAlign.Center),
             modifier = Modifier.width(60.dp).height(24.dp).background(Color.White, RoundedCornerShape(4.dp)).border(1.dp, Color.Gray, RoundedCornerShape(4.dp)).wrapContentHeight(Alignment.CenterVertically)

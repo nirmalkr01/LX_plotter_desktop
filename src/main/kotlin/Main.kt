@@ -4,6 +4,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -47,7 +48,8 @@ fun main() = application {
 
 fun Color.toAwtColor(): java.awt.Color = java.awt.Color(this.red, this.green, this.blue, this.alpha)
 
-enum class ControlGroup { VIEW, STYLE, SCALE, RANGE }
+// REDEFINED CONTROL GROUPS
+enum class ControlGroup { PROFILE, VIEW, ADJUST }
 enum class Screen { MAIN, REPORT_DOWNLOAD }
 
 @Composable
@@ -124,7 +126,7 @@ fun DesktopApp() {
     var endChainage by remember { mutableStateOf(0.0) }
 
     // Ribbon & View
-    var activeControlGroup by remember { mutableStateOf(ControlGroup.VIEW) }
+    var activeControlGroup by remember { mutableStateOf(ControlGroup.PROFILE) }
     var showRuler by remember { mutableStateOf(false) }
     var showGrid by remember { mutableStateOf(false) }
     var graphZoom by remember { mutableStateOf(0.6f) }
@@ -138,16 +140,18 @@ fun DesktopApp() {
             .map { DataError(it.chainage, it.distance, it.preMonsoon, it.postMonsoon) }
     }
 
-    // Logic: Process Data
+    // Logic: Process Data and Initialize Start Chainage
     LaunchedEffect(useThalweg, rawRiverData, manualZeroOverrides) {
         if (rawRiverData.isNotEmpty()) {
             riverData = processAndCenterData(rawRiverData, useThalweg, manualZeroOverrides)
             if (riverData.isNotEmpty()) {
                 minChainage = riverData.minOf { it.chainage }
                 maxChainage = riverData.maxOf { it.chainage }
+
+                // Initialize selection and Start Chainage if not set
                 if(selectedChainage == 0.0) {
                     selectedChainage = minChainage
-                    startChainage = minChainage
+                    startChainage = minChainage // FIX: Initialize Start Ch to first chainage
                     endChainage = maxChainage
                 }
             }
@@ -310,7 +314,9 @@ fun DesktopApp() {
                                 }
                             },
                             onGenerateReport = { if (riverData.isNotEmpty()) currentScreen = Screen.REPORT_DOWNLOAD else statusMessage = "Load data first" },
-                            onShowInstructions = { showInstructions = true }
+                            onShowInstructions = { showInstructions = true },
+                            zoomLevel = graphZoom,
+                            onZoomChange = { graphZoom = it }
                         )
 
                         // 2. RIBBON CONTENT (Collapsible)
@@ -321,82 +327,134 @@ fun DesktopApp() {
                         ) {
                             Surface(
                                 modifier = Modifier.fillMaxWidth(),
-                                color = MaterialTheme.colorScheme.surfaceContainer,
-                                shadowElevation = 4.dp,
-                                shape = RoundedCornerShape(bottomStart = 8.dp, bottomEnd = 8.dp)
+                                color = Color(0xFFF8F9FA),
+                                shadowElevation = 2.dp
                             ) {
-                                Box(modifier = Modifier.fillMaxWidth().padding(8.dp), contentAlignment = Alignment.Center) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().height(90.dp).padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
                                     when (activeControlGroup) {
-                                        ControlGroup.VIEW -> {
-                                            Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    Text("Profile:", fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(end=4.dp))
-                                                    SegmentedButtonRow {
-                                                        OutlinedButton(onClick = { selectedGraphType = "X-Section" }, shape = RoundedCornerShape(topStart = 4.dp, bottomStart = 4.dp), colors = if(selectedGraphType=="X-Section") ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer) else ButtonDefaults.outlinedButtonColors()) { Text("X-Sec") }
-                                                        OutlinedButton(onClick = { selectedGraphType = "L-Section" }, shape = RoundedCornerShape(topEnd = 4.dp, bottomEnd = 4.dp), colors = if(selectedGraphType=="L-Section") ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer) else ButtonDefaults.outlinedButtonColors()) { Text("L-Sec") }
+                                        // GROUP 1: PROFILE (Graph Types, Reference, Series)
+                                        ControlGroup.PROFILE -> {
+                                            MainPanelRibbonGroup("Graph Type") {
+                                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        RadioButton(selected = selectedGraphType == "X-Section", onClick = { selectedGraphType = "X-Section" }, modifier = Modifier.size(16.dp), colors = RadioButtonDefaults.colors(selectedColor = Color(0xFF2B579A)))
+                                                        Spacer(Modifier.width(4.dp))
+                                                        Text("X-Sec", fontSize = 11.sp, modifier = Modifier.clickable { selectedGraphType = "X-Section" })
+                                                    }
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        RadioButton(selected = selectedGraphType == "L-Section", onClick = { selectedGraphType = "L-Section" }, modifier = Modifier.size(16.dp), colors = RadioButtonDefaults.colors(selectedColor = Color(0xFF2B579A)))
+                                                        Spacer(Modifier.width(4.dp))
+                                                        Text("L-Sec", fontSize = 11.sp, modifier = Modifier.clickable { selectedGraphType = "L-Section" })
                                                     }
                                                 }
-                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    Text("Series:", fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(end=4.dp))
-                                                    FilterChip(selected = showPre, onClick = { showPre = !showPre }, label = { Text("Pre") }, leadingIcon = { Icon(Icons.Default.Check, null, tint = preColor) })
-                                                    Spacer(Modifier.width(4.dp))
-                                                    FilterChip(selected = showPost, onClick = { showPost = !showPost }, label = { Text("Post") }, leadingIcon = { Icon(Icons.Default.Check, null, tint = postColor) })
+                                            }
+
+                                            VerticalDivider(Modifier.padding(vertical = 8.dp))
+
+                                            MainPanelRibbonGroup("Reference") {
+                                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        RadioButton(selected = useThalweg, onClick = { useThalweg = true }, modifier = Modifier.size(16.dp), colors = RadioButtonDefaults.colors(selectedColor = Color(0xFF2B579A)))
+                                                        Spacer(Modifier.width(4.dp))
+                                                        Text("Thalweg", fontSize = 11.sp, modifier = Modifier.clickable { useThalweg = true })
+                                                    }
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        RadioButton(selected = !useThalweg, onClick = { useThalweg = false }, modifier = Modifier.size(16.dp), colors = RadioButtonDefaults.colors(selectedColor = Color(0xFF2B579A)))
+                                                        Spacer(Modifier.width(4.dp))
+                                                        Text("Center", fontSize = 11.sp, modifier = Modifier.clickable { useThalweg = false })
+                                                    }
                                                 }
-                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    Text("Ref:", fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(end=4.dp))
-                                                    FilterChip(selected = useThalweg, onClick = { useThalweg = true }, label = { Text("Thalweg") })
-                                                    Spacer(Modifier.width(4.dp))
-                                                    FilterChip(selected = !useThalweg, onClick = { useThalweg = false }, label = { Text("Center") })
-                                                }
-                                                Box(Modifier.width(1.dp).height(30.dp).background(Color.Gray))
-                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    IconToggleButton(checked = showRuler, onCheckedChange = { showRuler = it }) { Icon(Icons.Default.Straighten, null, tint = if(showRuler) MaterialTheme.colorScheme.primary else Color.Gray) }
-                                                    IconToggleButton(checked = showGrid, onCheckedChange = { showGrid = it }) { Icon(Icons.Default.GridOn, null, tint = if(showGrid) MaterialTheme.colorScheme.primary else Color.Gray) }
-                                                }
-                                                Box(Modifier.width(1.dp).height(30.dp).background(Color.Gray))
-                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    IconButton(onClick = { graphZoom = (graphZoom - 0.1f).coerceAtLeast(0.2f) }, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.ZoomOut, null) }
-                                                    Text("${(graphZoom * 100).toInt()}%", fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 4.dp))
-                                                    IconButton(onClick = { graphZoom = (graphZoom + 0.1f).coerceAtMost(5.0f) }, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.ZoomIn, null) }
+                                            }
+
+                                            VerticalDivider(Modifier.padding(vertical = 8.dp))
+
+                                            MainPanelRibbonGroup("Visible Series") {
+                                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Checkbox(checked = showPre, onCheckedChange = { showPre = it }, modifier = Modifier.size(16.dp), colors = CheckboxDefaults.colors(checkedColor = Color(0xFF2B579A)))
+                                                        Spacer(Modifier.width(4.dp))
+                                                        Text("Pre", fontSize = 11.sp)
+                                                    }
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Checkbox(checked = showPost, onCheckedChange = { showPost = it }, modifier = Modifier.size(16.dp), colors = CheckboxDefaults.colors(checkedColor = Color(0xFF2B579A)))
+                                                        Spacer(Modifier.width(4.dp))
+                                                        Text("Post", fontSize = 11.sp)
+                                                    }
                                                 }
                                             }
                                         }
-                                        ControlGroup.STYLE -> {
-                                            Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                                                StyleSelector("Pre:", preDotted, { preDotted=it }, preColor, { preColor=it }, preWidth, { preWidth=it }, preShowPoints, { preShowPoints=it })
-                                                Box(Modifier.width(1.dp).height(30.dp).background(Color.Gray))
-                                                StyleSelector("Post:", postDotted, { postDotted=it }, postColor, { postColor=it }, postWidth, { postWidth=it }, postShowPoints, { postShowPoints=it })
+
+                                        // GROUP 2: VIEW (Visual Style of Graph)
+                                        ControlGroup.VIEW -> {
+                                            MainPanelRibbonGroup("Pre-Monsoon Style") {
+                                                StyleSelector("Pre", preDotted, { preDotted=it }, preColor, { preColor=it }, preWidth, { preWidth=it }, preShowPoints, { preShowPoints=it })
+                                            }
+                                            VerticalDivider(Modifier.padding(vertical = 8.dp))
+                                            MainPanelRibbonGroup("Post-Monsoon Style") {
+                                                StyleSelector("Post", postDotted, { postDotted=it }, postColor, { postColor=it }, postWidth, { postWidth=it }, postShowPoints, { postShowPoints=it })
+                                            }
+                                            VerticalDivider(Modifier.padding(vertical = 8.dp))
+                                            MainPanelRibbonGroup("Helpers") {
+                                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Checkbox(checked = showGrid, onCheckedChange = { showGrid = it }, modifier = Modifier.size(16.dp), colors = CheckboxDefaults.colors(checkedColor = Color(0xFF2B579A)))
+                                                        Spacer(Modifier.width(4.dp))
+                                                        Text("Grid", fontSize = 11.sp)
+                                                    }
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Checkbox(checked = showRuler, onCheckedChange = { showRuler = it }, modifier = Modifier.size(16.dp), colors = CheckboxDefaults.colors(checkedColor = Color(0xFF2B579A)))
+                                                        Spacer(Modifier.width(4.dp))
+                                                        Text("Ruler", fontSize = 11.sp)
+                                                    }
+                                                }
                                             }
                                         }
-                                        ControlGroup.SCALE -> {
-                                            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                                Text("Scale:", fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.CenterVertically))
+
+                                        // GROUP 3: ADJUST (Scales & Ranges)
+                                        ControlGroup.ADJUST -> {
+                                            MainPanelRibbonGroup("Scale (1:X)") {
                                                 if (selectedGraphType == "L-Section") {
-                                                    ScaleInput("L-H Scale:", lHScale) { lHScale = it }
-                                                    ScaleInput("L-V Scale:", lVScale) { lVScale = it }
+                                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                        ScaleInput("Horizontal:", lHScale) { lHScale = it }
+                                                        ScaleInput("Vertical:", lVScale) { lVScale = it }
+                                                    }
                                                 } else {
-                                                    ScaleInput("X-H Scale:", xHScale) { xHScale = it }
-                                                    ScaleInput("X-V Scale:", xVScale) { xVScale = it }
+                                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                        ScaleInput("Horizontal:", xHScale) { xHScale = it }
+                                                        ScaleInput("Vertical:", xVScale) { xVScale = it }
+                                                    }
                                                 }
                                             }
-                                        }
-                                        ControlGroup.RANGE -> {
-                                            if (selectedGraphType == "L-Section") {
-                                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                                    Text("L-Section Range:", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                                    ScaleInput("Start", startChainage) { startChainage = it }
-                                                    ScaleInput("End", endChainage) { endChainage = it }
-                                                    if(startChainage < minChainage || endChainage > maxChainage || startChainage > endChainage) Text("(Invalid!)", fontSize = 11.sp, color = Color.Red)
-                                                    else Text("(Min:$minChainage - Max:$maxChainage)", fontSize = 11.sp, color = Color.Gray)
-                                                }
-                                            } else {
-                                                val uniqueChainages = remember(riverData) { riverData.map { it.chainage }.distinct().sorted() }
-                                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                                    Text("Chainage:", fontWeight = FontWeight.Bold)
-                                                    IconButton(onClick = { val idx = uniqueChainages.indexOf(selectedChainage); if(idx > 0) selectedChainage = uniqueChainages[idx - 1] }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Remove, null) }
-                                                    Slider(value = selectedChainage.toFloat(), onValueChange = { v -> selectedChainage = uniqueChainages.minByOrNull { abs(it - v) } ?: v.toDouble() }, valueRange = uniqueChainages.first().toFloat()..uniqueChainages.last().toFloat(), modifier = Modifier.width(200.dp))
-                                                    IconButton(onClick = { val idx = uniqueChainages.indexOf(selectedChainage); if(idx < uniqueChainages.size - 1) selectedChainage = uniqueChainages[idx + 1] }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Add, null) }
-                                                    Text("${String.format("%.0f", selectedChainage)}m", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+
+                                            VerticalDivider(Modifier.padding(vertical = 8.dp))
+
+                                            MainPanelRibbonGroup("Navigation") {
+                                                if (selectedGraphType == "L-Section") {
+                                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                        // FIX: These inputs now use initialized start/end chainages (often min/max)
+                                                        // The component ScaleInput is updated to display '0' if value is 0.0
+                                                        ScaleInput("Start Ch:", startChainage) { startChainage = it }
+                                                        ScaleInput("End Ch:", endChainage) { endChainage = it }
+                                                    }
+                                                } else {
+                                                    val uniqueChainages = remember(riverData) { riverData.map { it.chainage }.distinct().sorted() }
+                                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                                            IconButton(onClick = { val idx = uniqueChainages.indexOf(selectedChainage); if(idx > 0) selectedChainage = uniqueChainages[idx - 1] }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Remove, null, modifier = Modifier.size(14.dp)) }
+                                                            Text("CH: ${String.format("%.0f", selectedChainage)}", fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.width(60.dp), textAlign = TextAlign.Center)
+                                                            IconButton(onClick = { val idx = uniqueChainages.indexOf(selectedChainage); if(idx < uniqueChainages.size - 1) selectedChainage = uniqueChainages[idx + 1] }, modifier = Modifier.size(24.dp)) { Icon(Icons.Default.Add, null, modifier = Modifier.size(14.dp)) }
+                                                        }
+                                                        Slider(
+                                                            value = selectedChainage.toFloat(),
+                                                            onValueChange = { v -> selectedChainage = uniqueChainages.minByOrNull { abs(it - v) } ?: v.toDouble() },
+                                                            valueRange = if(uniqueChainages.isNotEmpty()) uniqueChainages.first().toFloat()..uniqueChainages.last().toFloat() else 0f..100f,
+                                                            modifier = Modifier.width(140.dp),
+                                                            colors = SliderDefaults.colors(thumbColor = Color(0xFF2B579A), activeTrackColor = Color(0xFF2B579A))
+                                                        )
+                                                    }
                                                 }
                                             }
                                         }
@@ -439,13 +497,13 @@ fun DesktopApp() {
                                         FloatingActionButton(
                                             onClick = { showTable = !showTable },
                                             modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp).size(36.dp),
-                                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                            containerColor = Color(0xFFE1EDFD), // Light Blue
                                             elevation = FloatingActionButtonDefaults.elevation(2.dp)
                                         ) {
                                             Icon(
                                                 if(showTable) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
                                                 contentDescription = "Toggle Table",
-                                                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                                tint = Color(0xFF2B579A) // Professional Blue
                                             )
                                         }
                                     }
@@ -473,7 +531,16 @@ fun DesktopApp() {
     }
 }
 
+// --- LOCAL RIBBON COMPONENTS FOR MAIN PANEL (Professional Look) ---
 @Composable
-fun SegmentedButtonRow(content: @Composable RowScope.() -> Unit) {
-    Row(modifier = Modifier.height(32.dp), content = content)
+private fun MainPanelRibbonGroup(label: String, content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.fillMaxHeight().padding(horizontal = 8.dp)
+    ) {
+        Box(modifier = Modifier.weight(1f).wrapContentWidth(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.Start) { content() }
+        }
+        Text(text = label, fontSize = 9.sp, color = Color.Gray, modifier = Modifier.padding(bottom = 4.dp))
+    }
 }
