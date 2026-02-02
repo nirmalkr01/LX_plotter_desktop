@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -13,8 +14,10 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.ui.text.font.FontStyle
@@ -40,6 +43,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -114,6 +118,9 @@ fun FilePanel(
     var draggingSourcePageId by remember { mutableStateOf<String?>(null) }
     var draggingCurrentOffset by remember { mutableStateOf(Offset.Zero) }
     var isDraggingGroup by remember { mutableStateOf(false) }
+
+    // ALIGNMENT GUIDES STATE
+    var activeAlignmentLines by remember { mutableStateOf<List<AlignmentLine>>(emptyList()) }
 
     // Group Drag Data Snapshots (For Ghost Rendering)
     var groupDragStartBoxRelative by remember { mutableStateOf(Offset.Zero) } // Offset of mouse relative to box top-left
@@ -231,6 +238,37 @@ fun FilePanel(
         } else {
             selectedAnnotationId?.let { id -> pageTextData[activeId]?.removeAll { it.id == id }; selectedAnnotationId = null }
             selectedElementId?.let { id -> pageElementData[activeId]?.removeAll { it.id == id }; selectedElementId = null }
+        }
+    }
+
+    // MOVE FUNCTION (NUDGE)
+    fun performNudge(dxPercent: Float, dyPercent: Float) {
+        val activeId = reportItems.getOrNull(activePageIndex)?.id ?: return
+        val currentTexts = pageTextData[activeId] ?: return
+        val currentElems = pageElementData[activeId] ?: return
+
+        // Helpers to apply delta
+        fun nudgeText(id: String) {
+            val idx = currentTexts.indexOfFirst { it.id == id }
+            if (idx != -1) {
+                val old = currentTexts[idx]
+                currentTexts[idx] = old.copy(xPercent = old.xPercent + dxPercent, yPercent = old.yPercent + dyPercent)
+            }
+        }
+        fun nudgeElem(id: String) {
+            val idx = currentElems.indexOfFirst { it.id == id }
+            if (idx != -1) {
+                val old = currentElems[idx]
+                currentElems[idx] = old.copy(xPercent = old.xPercent + dxPercent, yPercent = old.yPercent + dyPercent)
+            }
+        }
+
+        if (isSelectToolActive) {
+            multiSelectedAnnotationIds.forEach { nudgeText(it) }
+            multiSelectedElementIds.forEach { nudgeElem(it) }
+        } else {
+            selectedAnnotationId?.let { nudgeText(it) }
+            selectedElementId?.let { nudgeElem(it) }
         }
     }
 
@@ -407,20 +445,30 @@ fun FilePanel(
             .fillMaxSize()
             .background(Color(0xFFF3F2F1))
             .border(1.dp, Color(0xFFD1D1D1))
-            // Keyboard Shortcuts Handler
+            // Keyboard Shortcuts Handler (Nudge + Edit Actions)
             .onKeyEvent { event ->
-                if (event.isCtrlPressed && event.key == Key.C && event.type == KeyEventType.KeyUp) {
-                    performCopy()
-                    true
-                } else if (event.isCtrlPressed && event.key == Key.V && event.type == KeyEventType.KeyUp) {
-                    performPaste()
-                    true
-                } else if (event.key == Key.Delete && event.type == KeyEventType.KeyUp) {
-                    performDelete()
-                    true
-                } else {
-                    false
-                }
+                // CHANGED: Use KeyDown for continuous press support
+                if (event.type == KeyEventType.KeyDown) {
+                    if (event.isCtrlPressed) {
+                        when (event.key) {
+                            Key.C -> { performCopy(); true }
+                            Key.V -> { performPaste(); true }
+                            else -> false
+                        }
+                    } else if (event.key == Key.Delete) {
+                        performDelete(); true
+                    } else if (!isPartitionModeEnabled) {
+                        // NUDGE LOGIC
+                        val step = if (event.isShiftPressed) 0.01f else 0.001f // Faster with Shift
+                        when (event.key) {
+                            Key.DirectionLeft -> { performNudge(-step, 0f); true }
+                            Key.DirectionRight -> { performNudge(step, 0f); true }
+                            Key.DirectionUp -> { performNudge(0f, -step); true } // Up decreases Y in Top-Left origin
+                            Key.DirectionDown -> { performNudge(0f, step); true }
+                            else -> false
+                        }
+                    } else false
+                } else false
             }
     ) {
         // ================= UNIFIED TOOLBAR (REPLACED HEADER & TABS) =================
@@ -735,9 +783,44 @@ fun FilePanel(
                                         if(!isPartitionModeEnabled) { isDraggingGroup = true; draggingSourcePageId = item.id; draggingCurrentOffset = pos; groupDragStartBoxRelative = pos - rect.topLeft; groupGhostBounds = rect; groupGhostTexts = pageTextData[item.id]?.filter { multiSelectedAnnotationIds.contains(it.id) }?.map { it.copy() } ?: emptyList(); groupGhostElements = pageElementData[item.id]?.filter { multiSelectedElementIds.contains(it.id) }?.map { it.copy() } ?: emptyList() }
                                     },
                                     onGlobalDrag = { dragDelta ->
-                                        if(!isPartitionModeEnabled) draggingCurrentOffset += dragDelta
+                                        if(!isPartitionModeEnabled) {
+                                            draggingCurrentOffset += dragDelta
+                                            // CALCULATE GUIDES ON DRAG
+                                            if (draggingElement != null && draggingSourcePageId != null) {
+                                                // Simplified guide logic here as a placeholder for full Animation.kt integration if needed
+                                                // Real implementation logic is inside Animation.kt called below if integrated
+                                                // For now, let's trigger the alignment lines update:
+                                                val pageRect = pageBounds[draggingSourcePageId!!]
+                                                if (pageRect != null) {
+                                                    val pageW = pageRect.width
+                                                    val pageH = pageRect.height
+                                                    val elem = draggingElement!!
+                                                    val currentW = pageW * elem.widthPercent
+                                                    val currentH = pageH * elem.heightPercent
+
+                                                    // Convert screen offset to page-relative for calculation
+                                                    // draggingCurrentOffset is absolute. pageRect.topLeft is absolute.
+                                                    val relX = draggingCurrentOffset.x - pageRect.left
+                                                    val relY = draggingCurrentOffset.y - pageRect.top
+
+                                                    val currentRect = Rect(relX, relY, relX + currentW, relY + currentH)
+
+                                                    // Gather other rects
+                                                    val others = (pageElementData[draggingSourcePageId!!] ?: emptyList()).filter { it.id != elem.id }.map {
+                                                        Rect(it.xPercent * pageW, it.yPercent * pageH, (it.xPercent + it.widthPercent) * pageW, (it.yPercent + it.heightPercent) * pageH)
+                                                    }
+
+                                                    activeAlignmentLines = calculateAlignmentGuides(currentRect, others, pageW, pageH)
+                                                }
+                                            } else {
+                                                activeAlignmentLines = emptyList()
+                                            }
+                                        }
                                     },
                                     onGlobalDragEnd = {
+                                        // CLEAR GUIDES
+                                        activeAlignmentLines = emptyList()
+
                                         // CROSS-PAGE DROP LOGIC FOR GROUPS AND SINGLES
                                         if(!isPartitionModeEnabled) {
                                             var droppedPageId: String? = null
@@ -853,6 +936,7 @@ fun FilePanel(
                                         // Reset State
                                         draggingAnnotation = null; draggingElement = null; draggingSourcePageId = null; isDraggingGroup = false
                                         groupGhostTexts = emptyList(); groupGhostElements = emptyList()
+                                        activeAlignmentLines = emptyList()
                                     }
                                 )
 
@@ -927,6 +1011,7 @@ fun FilePanel(
             }
 
             // GHOST LAYERS (RENDERED LAST TO BE ON TOP)
+            // Fix Ghosting: Use zIndex to ensure it floats above everything else
             if (isDraggingGroup && (groupGhostTexts.isNotEmpty() || groupGhostElements.isNotEmpty())) {
                 val currentBoxTopLeft = draggingCurrentOffset - groupDragStartBoxRelative
                 val originalPageRect = pageBounds[draggingSourcePageId]
@@ -934,7 +1019,10 @@ fun FilePanel(
                     val pageW = originalPageRect.width
                     val pageH = originalPageRect.height
 
-                    Box(modifier = Modifier.offset { IntOffset((currentBoxTopLeft.x - parentOffset.x).roundToInt(), (currentBoxTopLeft.y - parentOffset.y).roundToInt()) }) {
+                    Box(modifier = Modifier
+                        .offset { IntOffset((currentBoxTopLeft.x - parentOffset.x).roundToInt(), (currentBoxTopLeft.y - parentOffset.y).roundToInt()) }
+                        .zIndex(100f) // Ensure on top
+                    ) {
                         groupGhostTexts.forEach { txt ->
                             val itemPxX = txt.xPercent * pageW
                             val itemPxY = txt.yPercent * pageH
@@ -974,7 +1062,10 @@ fun FilePanel(
             if (!isDraggingGroup) {
                 if (draggingAnnotation != null) {
                     val currentTextState = pageTextData[draggingSourcePageId]?.find { it.id == draggingAnnotation!!.id } ?: draggingAnnotation!!
-                    Box(modifier = Modifier.offset { IntOffset((draggingCurrentOffset.x - parentOffset.x).roundToInt(), (draggingCurrentOffset.y - parentOffset.y).roundToInt()) }.background(Color.White.copy(alpha=0.8f)).border(1.dp, Color.Gray, RoundedCornerShape(4.dp)).padding(4.dp)) {
+                    Box(modifier = Modifier
+                        .offset { IntOffset((draggingCurrentOffset.x - parentOffset.x).roundToInt(), (draggingCurrentOffset.y - parentOffset.y).roundToInt()) }
+                        .zIndex(100f) // Ensure on top
+                        .background(Color.White.copy(alpha=0.8f)).border(1.dp, Color.Gray, RoundedCornerShape(4.dp)).padding(4.dp)) {
                         Text(text = currentTextState.text, color = currentTextState.color, fontSize = (currentTextState.fontSize * (zoomPercent/100f)).sp, fontWeight = if (currentTextState.isBold) FontWeight.Bold else FontWeight.Normal, fontStyle = if (currentTextState.isItalic) FontStyle.Italic else FontStyle.Normal, textDecoration = if (currentTextState.isUnderline) TextDecoration.Underline else TextDecoration.None, fontFamily = getFontFamily(currentTextState.fontFamily))
                     }
                 }
@@ -987,6 +1078,7 @@ fun FilePanel(
 
                     Box(modifier = Modifier
                         .offset { IntOffset((draggingCurrentOffset.x - parentOffset.x).roundToInt(), (draggingCurrentOffset.y - parentOffset.y).roundToInt()) }
+                        .zIndex(100f) // Ensure on top
                         .size(with(density) { ghostWidth.toDp() }, with(density) { ghostHeight.toDp() })
                         .background(Color.Transparent)
                     ) {
@@ -1003,6 +1095,36 @@ fun FilePanel(
                     }
                 }
             }
+
+            // OVERLAY: Alignment Lines (Rendered on top of Ghosts)
+            if (activeAlignmentLines.isNotEmpty()) {
+                val originalPageRect = pageBounds[draggingSourcePageId]
+                if (originalPageRect != null) {
+                    // Lines are calculated relative to the PAGE content area.
+                    // We need to render them relative to the PARENT (FilePanel) to overlay correctly.
+                    // Actually, the `calculateAlignmentGuides` used page-relative coordinates.
+                    // If we render them in a Box overlaying the page, it works.
+                    // But we are in the parent scope. We know the page rect.
+                    // Let's offset the lines by the page top-left relative to parent.
+                    val pageRelX = originalPageRect.left - parentOffset.x
+                    val pageRelY = originalPageRect.top - parentOffset.y
+
+                    // Simple Box covering the specific page would be best, but we are global.
+                    // Let's transform lines to global space.
+                    val globalLines = activeAlignmentLines.map {
+                        AlignmentLine(
+                            start = it.start + Offset(pageRelX, pageRelY),
+                            end = it.end + Offset(pageRelX, pageRelY),
+                            isVertical = it.isVertical
+                        )
+                    }
+
+                    Box(modifier = Modifier.fillMaxSize().zIndex(200f)) {
+                        AlignmentOverlay(globalLines)
+                    }
+                }
+            }
+
             // Add Horizontal Scrollbar
             HorizontalScrollbar(
                 adapter = rememberScrollbarAdapter(horizontalScrollState),

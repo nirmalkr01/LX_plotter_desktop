@@ -84,16 +84,15 @@ fun UnifiedAppHeader(
     isRibbonOpen: Boolean,
     onToggleRibbon: () -> Unit,
     onGroupSelected: (ControlGroup) -> Unit,
-    onToggleHistory: () -> Unit,
-    isHistoryVisible: Boolean,
+    onGoHome: () -> Unit,
     onNavigateToError: (Double) -> Unit,
-    onLoad: () -> Unit,
     onDownloadCsv: () -> Unit,
     onGenerateReport: () -> Unit,
-    onShowInstructions: () -> Unit,
     // NEW: Zoom Controls for Header
     zoomLevel: Float,
-    onZoomChange: (Float) -> Unit
+    onZoomChange: (Float) -> Unit,
+    // NEW: Callback to ensure table is open
+    onEnsureTableVisible: () -> Unit
 ) {
     var showDownloadMenu by remember { mutableStateOf(false) }
 
@@ -106,11 +105,11 @@ fun UnifiedAppHeader(
             modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 1. History Toggle (Menu Icon)
+            // 1. Home Button
             HeaderIconButton(
-                onClick = onToggleHistory,
-                icon = if(isHistoryVisible) Icons.Default.MenuOpen else Icons.Default.Menu,
-                tooltip = "Toggle History Panel",
+                onClick = onGoHome,
+                icon = Icons.Default.Home,
+                tooltip = "Back to Home",
                 tint = Color.DarkGray
             )
 
@@ -174,7 +173,7 @@ fun UnifiedAppHeader(
                 // Status Text
                 Text(status, fontSize = 11.sp, color = Color.Gray, maxLines = 1, modifier = Modifier.padding(end = 8.dp))
 
-                NotificationSection(errors, onNavigateToError)
+                NotificationSection(errors, onNavigateToError, onEnsureTableVisible)
 
                 VerticalDivider(Modifier.height(20.dp).padding(horizontal = 4.dp))
 
@@ -197,13 +196,7 @@ fun UnifiedAppHeader(
 
                 VerticalDivider(Modifier.height(20.dp).padding(horizontal = 4.dp))
 
-                HeaderIconButton(
-                    onClick = onLoad,
-                    icon = Icons.Default.Add, // Changed to + icon
-                    tooltip = "Load New CSV File",
-                    tint = Color(0xFF2B579A) // Professional Blue
-                )
-
+                // SAVE/DOWNLOAD MENU
                 Box {
                     HeaderIconButton(
                         onClick = { showDownloadMenu = true },
@@ -224,13 +217,6 @@ fun UnifiedAppHeader(
                         )
                     }
                 }
-
-                HeaderIconButton(
-                    onClick = onShowInstructions,
-                    icon = Icons.Default.HelpOutline,
-                    tooltip = "Help",
-                    tint = Color.Gray
-                )
             }
         }
     }
@@ -240,7 +226,11 @@ fun UnifiedAppHeader(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun NotificationSection(errors: List<DataError>, onNavigate: (Double) -> Unit) {
+fun NotificationSection(
+    errors: List<DataError>,
+    onNavigate: (Double) -> Unit,
+    onEnsureTableVisible: () -> Unit
+) {
     var expanded by remember { mutableStateOf(false) }
     val hasErrors = errors.isNotEmpty()
 
@@ -307,6 +297,7 @@ fun NotificationSection(errors: List<DataError>, onNavigate: (Double) -> Unit) {
                     leadingIcon = { Icon(Icons.Default.ErrorOutline, null, tint = Color.Red) },
                     onClick = {
                         onNavigate(error.chainage)
+                        onEnsureTableVisible() // Open table if closed
                         expanded = false
                     }
                 )
@@ -418,62 +409,7 @@ fun ColumnSelector(options: List<String>, selectedIdx: Int, onSelect: (Int) -> U
     }
 }
 
-@Composable
-fun InstructionDialog(onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Complete Application Walkthrough", fontWeight = FontWeight.Bold) },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(450.dp)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Step 1: Loading Data", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
-                    Text("• Click the 'Load' (+) button in the top header.", fontSize = 13.sp)
-                    Text("• Select your CSV file. A mapping window will appear.", fontSize = 13.sp)
-                    Text("• Use the dropdowns to match your CSV headers to 'Chainage', 'Offset', and 'Monsoon Levels'.", fontSize = 13.sp)
-                    Text("• Check the preview table to ensure data looks correct, then click 'Confirm Load'.", fontSize = 13.sp)
-                }
-                HorizontalDivider()
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Step 2: Analysis & Style", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
-                    Text("• Switch between X-Section and L-Section using the top ribbon.", fontSize = 13.sp)
-                    Text("• Use the 'Style' tab to change colors, thickness, or toggle dotted lines for Pre/Post series.", fontSize = 13.sp)
-                    Text("• Check notifications (Bell icon) for any Pre-Monsoon levels that are higher than Post-Monsoon.", fontSize = 13.sp)
-                    Text("• Edit values directly in the bottom table by enabling 'Manual Mode'.", fontSize = 13.sp)
-                }
-                HorizontalDivider()
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Step 3: Preparing the Layout", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
-                    Text("• Click 'Download' -> 'Report' to enter the Designer Screen.", fontSize = 13.sp)
-                    Text("• In the designer, create pages using the '+' button at the bottom.", fontSize = 13.sp)
-                    Text("• Enable 'Grid Mode' (Blue chip at the top) to see available slots on the paper.", fontSize = 13.sp)
-                    Text("• Select a graph from the left list, click an empty slot on the page, and press 'Add to Slot'.", fontSize = 13.sp)
-                }
-                HorizontalDivider()
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Step 4: Interactive Customization", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
-                    Text("• Inside the 'Image View', use the 'Select Element' dropdown to pick 'RIVER' text or 'Blue Lines'.", fontSize = 13.sp)
-                    Text("• Drag the elements directly on the preview graph to position them (e.g., move bank indicators).", fontSize = 13.sp)
-                    Text("• For L-Sections, use 'Auto Split' to automatically divide long river profiles into multiple printable slots.", fontSize = 13.sp)
-                }
-                HorizontalDivider()
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Step 5: Annotation & Final PDF", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
-                    Text("• Use 'Insert & Text' tab to add manual notes, arrows, or shapes to your report pages.", fontSize = 13.sp)
-                    Text("• Set Global Header info (Annexure, B1 Text) and apply it to all pages at once.", fontSize = 13.sp)
-                    Text("• Finally, click the red 'Export PDF' button. Choose a save location and the app will generate and open your final multi-page engineering document.", fontSize = 13.sp)
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Got it!") } }
-    )
-}
+// InstructionDialog REMOVED - Logic moved to HelpIcon.kt
 
 @Composable
 fun LeftPanel(history: List<String>, onHistoryItemClick: (String) -> Unit, onDeleteHistoryItem: (String) -> Unit) {
@@ -718,16 +654,42 @@ fun StyleSelector(
     }
 }
 
+// UPDATED ScaleInput to fix deletion issue
 @Composable
 fun ScaleInput(label: String, value: Double, onValueChange: (Double) -> Unit) {
+    // Hold local state for the text field to allow intermediate editing (like empty string)
+    // Initialize with the current value, removing ".0" for cleaner integers
+    var text by remember { mutableStateOf(value.toString().removeSuffix(".0")) }
+
+    // Sync with external changes (e.g. reset, file load)
+    // Only update local text if the external value differs significantly from what we have parsed.
+    // This prevents the cursor from jumping or "0." resetting to "0" while typing.
+    LaunchedEffect(value) {
+        val parsed = text.toDoubleOrNull() ?: 0.0
+        if (parsed != value) {
+            text = value.toString().removeSuffix(".0")
+        }
+    }
+
     Row(verticalAlignment = Alignment.CenterVertically) {
         // Fix Even placement: Use a fixed width for the label so inputs align vertically
         Text(label, fontSize = 11.sp, modifier = Modifier.width(70.dp))
         Spacer(Modifier.width(4.dp))
         BasicTextField(
-            // UPDATED: Allow 0.0 to display as "0" instead of blank string
-            value = value.toInt().toString(),
-            onValueChange = { onValueChange(it.toDoubleOrNull() ?: 0.0) },
+            value = text,
+            onValueChange = { newText ->
+                // Regex: Allow empty, "-", integers, or decimals
+                if (newText.isEmpty() || newText == "-" || newText.matches(Regex("^-?\\d*\\.?\\d*\$"))) {
+                    text = newText
+                    val d = newText.toDoubleOrNull()
+                    if (d != null) {
+                        onValueChange(d)
+                    } else if (newText.isEmpty() || newText == "-") {
+                        // Treat empty or just minus sign as 0.0 for the logic, but keep text field state as is
+                        onValueChange(0.0)
+                    }
+                }
+            },
             textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, textAlign = TextAlign.Center),
             modifier = Modifier.width(60.dp).height(24.dp).background(Color.White, RoundedCornerShape(4.dp)).border(1.dp, Color.Gray, RoundedCornerShape(4.dp)).wrapContentHeight(Alignment.CenterVertically)
         )

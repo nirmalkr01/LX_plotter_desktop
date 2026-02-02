@@ -50,12 +50,12 @@ fun Color.toAwtColor(): java.awt.Color = java.awt.Color(this.red, this.green, th
 
 // REDEFINED CONTROL GROUPS
 enum class ControlGroup { PROFILE, VIEW, ADJUST }
-enum class Screen { MAIN, REPORT_DOWNLOAD }
+enum class Screen { STARTUP, MAIN, REPORT_DOWNLOAD }
 
 @Composable
 fun DesktopApp() {
     val scope = rememberCoroutineScope()
-    var currentScreen by remember { mutableStateOf(Screen.MAIN) }
+    var currentScreen by remember { mutableStateOf(Screen.STARTUP) }
 
     // Data States
     var riverData by remember { mutableStateOf<List<RiverPoint>>(emptyList()) }
@@ -69,7 +69,6 @@ fun DesktopApp() {
     var updateNotes by remember { mutableStateOf("") }
 
     // Layout States
-    var showHistory by remember { mutableStateOf(false) } // Initially Hidden
     var showTable by remember { mutableStateOf(true) }    // Initially Visible
     var isRibbonOpen by remember { mutableStateOf(true) } // Ribbon initially open
 
@@ -90,6 +89,7 @@ fun DesktopApp() {
     }
 
     // UI States
+    // showInstructions flag now controls the HelpDialog from HelpIcon.kt
     var showInstructions by remember { mutableStateOf(false) }
     var showCsvMapping by remember { mutableStateOf(false) }
     var pendingFile by remember { mutableStateOf<File?>(null) }
@@ -103,7 +103,7 @@ fun DesktopApp() {
     var selectedGraphType by remember { mutableStateOf("X-Section") }
     var selectedChainage by remember { mutableStateOf(0.0) }
 
-    // Series & Style - MODIFIED DEFAULTS (1px, No Points)
+    // Series & Style
     var showPre by remember { mutableStateOf(true) }
     var showPost by remember { mutableStateOf(true) }
     var preColor by remember { mutableStateOf(Color.Blue) }
@@ -177,6 +177,9 @@ fun DesktopApp() {
                 showPre, showPost, preDotted, postDotted, preWidth, postWidth, preShowPoints, postShowPoints,
                 lHScale, lVScale, xHScale, xVScale, preColor.toArgb(), postColor.toArgb()
             )
+
+            // TRANSITION TO MAIN WORKSPACE
+            currentScreen = Screen.MAIN
         }
         showCsvMapping = false; pendingFile = null
     }
@@ -251,7 +254,8 @@ fun DesktopApp() {
         }
     }
 
-    if (showInstructions) InstructionDialog(onDismiss = { showInstructions = false })
+    // UPDATED: Use HelpDialog instead of InstructionDialog
+    if (showInstructions) HelpDialog(onDismiss = { showInstructions = false })
     if (showCsvMapping) CsvMappingDialog(headers = csvHeaders, previewRows = csvPreviewRows, onDismiss = { showCsvMapping = false }, onConfirm = { finishLoading(it) })
 
     // --- MAIN UI ---
@@ -271,6 +275,20 @@ fun DesktopApp() {
 
         Box(Modifier.weight(1f)) {
             when (currentScreen) {
+                Screen.STARTUP -> {
+                    // NEW START PAGE
+                    WordStyleHomePage(
+                        recentFiles = history,
+                        onOpenFile = { prepareFileLoad(it) },
+                        onNewProject = { pickFile()?.let { prepareFileLoad(it) } },
+                        // ADDED: Delete handler for history items
+                        onDeleteFile = { pathToDelete ->
+                            history = history.filter { it != pathToDelete }
+                            saveHistory(history)
+                        },
+                        onShowHelp = { showInstructions = true } // Trigger Help
+                    )
+                }
                 Screen.REPORT_DOWNLOAD -> {
                     ReportDownloadScreen(
                         riverData = riverData,
@@ -293,6 +311,7 @@ fun DesktopApp() {
                     Column(modifier = Modifier.fillMaxSize()) {
 
                         // 1. UNIFIED HEADER (MS Word Style)
+                        // Note: Removed onLoad and History toggle as requested for the main view
                         UnifiedAppHeader(
                             status = statusMessage,
                             errors = dataErrors,
@@ -304,19 +323,20 @@ fun DesktopApp() {
                                 // If ribbon was closed, open it. If click same tab, maintain state.
                                 if(!isRibbonOpen) isRibbonOpen = true
                             },
-                            onToggleHistory = { showHistory = !showHistory },
-                            isHistoryVisible = showHistory,
+                            // Re-purposed to act as "Back to Home"
+                            onGoHome = { currentScreen = Screen.STARTUP },
                             onNavigateToError = { selectedGraphType = "X-Section"; selectedChainage = it },
-                            onLoad = { pickFile()?.let { prepareFileLoad(it) } },
                             onDownloadCsv = {
                                 if(riverData.isNotEmpty()) pickSaveFile("modified_data.csv")?.let { file ->
                                     scope.launch(Dispatchers.IO) { saveCsv(riverData, file); statusMessage = "CSV Saved: ${file.name}" }
                                 }
                             },
                             onGenerateReport = { if (riverData.isNotEmpty()) currentScreen = Screen.REPORT_DOWNLOAD else statusMessage = "Load data first" },
-                            onShowInstructions = { showInstructions = true },
                             zoomLevel = graphZoom,
-                            onZoomChange = { graphZoom = it }
+                            onZoomChange = { graphZoom = it },
+                            // Removed Help Icon Callback
+                            // NEW: Callback to auto-show table
+                            onEnsureTableVisible = { showTable = true }
                         )
 
                         // 2. RIBBON CONTENT (Collapsible)
@@ -434,8 +454,6 @@ fun DesktopApp() {
                                             MainPanelRibbonGroup("Navigation") {
                                                 if (selectedGraphType == "L-Section") {
                                                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                                        // FIX: These inputs now use initialized start/end chainages (often min/max)
-                                                        // The component ScaleInput is updated to display '0' if value is 0.0
                                                         ScaleInput("Start Ch:", startChainage) { startChainage = it }
                                                         ScaleInput("End Ch:", endChainage) { endChainage = it }
                                                     }
@@ -466,21 +484,7 @@ fun DesktopApp() {
                         // 3. MAIN WORKSPACE (Split Left Panel / Graph / Table)
                         Row(modifier = Modifier.fillMaxSize()) {
 
-                            // History Panel (Collapsible)
-                            AnimatedVisibility(
-                                visible = showHistory,
-                                enter = expandHorizontally(),
-                                exit = shrinkHorizontally()
-                            ) {
-                                LeftPanel(
-                                    history = history,
-                                    onHistoryItemClick = { prepareFileLoad(File(it)) },
-                                    onDeleteHistoryItem = { path ->
-                                        history = history.filter { it != path }; saveHistory(history)
-                                        if (pendingFile?.absolutePath == path) pendingFile = null
-                                    }
-                                )
-                            }
+                            // No History Panel here (moved to Start Screen)
 
                             // Center Content
                             Column(modifier = Modifier.weight(1f).fillMaxHeight()) {

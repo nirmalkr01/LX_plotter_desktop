@@ -8,6 +8,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,7 +75,8 @@ fun EngineeringCanvas(
     val pxPerMeterX = cmPerMeterX * currentPxPerCm
     val pxPerMeterY = cmPerMeterY * currentPxPerCm
 
-    val padding = 60.0
+    // INCREASED PADDING to ensure X-axis isn't hidden by panel boundary visually
+    val padding = 80.0
 
     val rawGraphW = (maxX - minX) * pxPerMeterX + (2 * padding)
     val rawGraphH = (maxY - minY) * pxPerMeterY + (2 * padding)
@@ -96,6 +98,13 @@ fun EngineeringCanvas(
         val horizontalScroll = rememberScrollState()
         val verticalScroll = rememberScrollState()
         val textMeasurer = rememberTextMeasurer()
+
+        // Auto-scroll to bottom to ensure X-axis is visible initially
+        LaunchedEffect(graphRequiredHeight) {
+            if (enableVScroll) {
+                verticalScroll.scrollTo(verticalScroll.maxValue)
+            }
+        }
 
         Box(
             modifier = Modifier
@@ -154,7 +163,6 @@ fun EngineeringCanvas(
                         val labelX = xPos - 15f
                         val labelY = zeroY + 10f
 
-                        // CRITICAL FIX: Ensure the label coordinates don't force negative layout widths
                         if (labelX >= 0f && labelY >= 0f && labelX < w - 20f && labelY < h - 15f) {
                             try {
                                 drawText(
@@ -183,16 +191,17 @@ fun EngineeringCanvas(
                     if (yPos >= padding && yPos <= h - padding) {
                         drawLine(Color.Black, Offset(zeroX - 5f, yPos), Offset(zeroX, yPos), 1f)
 
-                        val labelX = zeroX - 35f
+                        // MOVED LEFT: Extra spacing between axis and coordinate text
+                        val labelX = zeroX - 45f
                         val labelY = yPos - 6f
-                        // CRITICAL FIX: Similar boundary check for Y axis text
+
                         if (labelX >= 0f && labelY >= 0f && labelX < w - 40f && labelY < h - 10f) {
                             try {
                                 drawText(
                                     textMeasurer,
                                     String.format("%.1f", yVal),
                                     Offset(labelX, labelY),
-                                    TextStyle(fontSize = 10.sp, color = Color.Black)
+                                    TextStyle(fontSize = 10.sp, color = Color.Black, textAlign = androidx.compose.ui.text.style.TextAlign.End)
                                 )
                             } catch (e: Exception) { /* Silently fail to prevent crash */ }
                         }
