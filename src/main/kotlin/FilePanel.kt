@@ -1,3 +1,4 @@
+// FILE: D:\LX_plotter_desktop\src\main\kotlin\FilePanel.kt
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -38,17 +39,20 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import java.util.UUID
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
 data class TextAnnotation(
-    var id: String = java.util.UUID.randomUUID().toString(),
+    var id: String = UUID.randomUUID().toString(),
     var text: String = "",
-    var xPercent: Float = 0f,
-    var yPercent: Float = 0f,
-    var widthPercent: Float = 0.2f,
-    var heightPercent: Float = 0.05f,
+    // --- COORDINATES IN MILLIMETERS (MM) ---
+    var xMm: Float = 10f,
+    var yMm: Float = 10f,
+    var widthMm: Float = 50f,
+    var heightMm: Float = 10f,
+
     var color: Color = Color.Black,
     var fontSize: Float = 12f,
     var isBold: Boolean = false,
@@ -131,29 +135,19 @@ fun EditablePageContainer(
     onGlobalDragEnd: () -> Unit
 ) {
     val textMeasurer = rememberTextMeasurer()
+    val density = LocalDensity.current
 
-    // 1. Dimensions
+    // --- 1. CALCULATE SCALE (MM -> SCREEN PX) ---
+    // Standard screen is approx 96 DPI => 1 inch = 25.4mm = 96px => 1mm = 3.78px
+    // We scale this base density by the User's Zoom Level
+    val pxPerMm = 3.78f * density.density * (zoomLevel / 100f)
+
+    // Calculate Paper Size in Screen Pixels
     val widthMm = if (isLandscape) paperSize.heightMm else paperSize.widthMm
     val heightMm = if (isLandscape) paperSize.widthMm else paperSize.heightMm
-    val pxPerMm = 1.5f * zoomLevel
-    val paperW_dp = (widthMm * pxPerMm).dp
-    val paperH_dp = (heightMm * pxPerMm).dp
 
-    // 2. Margins & Borders (Pixels)
-    val mLeftPx = config.marginLeft * pxPerMm
-    val mTopPx = config.marginTop * pxPerMm
-    val mRightPx = config.marginRight * pxPerMm
-    val mBottomPx = config.marginBottom * pxPerMm
-    val gapPx = config.borderGap * pxPerMm
-
-    val innerLeftPx = mLeftPx + gapPx
-    val innerTopPx = mTopPx + gapPx
-    val innerRightPx = mRightPx + gapPx
-    val innerBottomPx = mBottomPx + gapPx
-
-    val density = LocalDensity.current
-    val paperW_px = with(density) { paperW_dp.toPx() }
-    val paperH_px = with(density) { paperH_dp.toPx() }
+    val paperW_px = widthMm * pxPerMm
+    val paperH_px = heightMm * pxPerMm
 
     val currentPaperW by rememberUpdatedState(paperW_px)
     val currentPaperH by rememberUpdatedState(paperH_px)
@@ -163,7 +157,7 @@ fun EditablePageContainer(
 
     BoxWithConstraints(
         modifier = Modifier
-            .size(paperW_dp, paperH_dp)
+            .size(with(density) { paperW_px.toDp() }, with(density) { paperH_px.toDp() })
             .background(Color.White)
             // INPUT HANDLING: MARQUEE SELECTION
             .pointerInput(isSelectToolActive) {
@@ -184,12 +178,12 @@ fun EditablePageContainer(
                             if (selectionRect != null) {
                                 val rect = selectionRect!!.rect
                                 textAnnotations.forEach { txt ->
-                                    if(isItemInSelection(rect, txt.xPercent, txt.yPercent, txt.widthPercent, txt.heightPercent, paperW_px, paperH_px)) {
+                                    if(isItemInSelection(rect, txt.xMm, txt.yMm, txt.widthMm, txt.heightMm, pxPerMm)) {
                                         if(!multiSelectedAnnotationIds.contains(txt.id)) multiSelectedAnnotationIds.add(txt.id)
                                     }
                                 }
                                 elements.forEach { el ->
-                                    if(isItemInSelection(rect, el.xPercent, el.yPercent, el.widthPercent, el.heightPercent, paperW_px, paperH_px)) {
+                                    if(isItemInSelection(rect, el.xMm, el.yMm, el.widthMm, el.heightMm, pxPerMm)) {
                                         if(!multiSelectedElementIds.contains(el.id)) multiSelectedElementIds.add(el.id)
                                     }
                                 }
@@ -205,14 +199,15 @@ fun EditablePageContainer(
                     onTap = { offset ->
                         onPageSelected()
                         if (isTextToolActive) {
-                            val safeX = offset.x
-                            val safeY = offset.y
+                            // CONVERT CLICK (PX) -> MM
+                            val safeX_mm = offset.x / pxPerMm
+                            val safeY_mm = offset.y / pxPerMm
                             val nextIdNum = textAnnotations.size + 1
                             val newTxt = TextAnnotation(
-                                xPercent = safeX / currentPaperW,
-                                yPercent = safeY / currentPaperH,
-                                widthPercent = 0.2f,
-                                heightPercent = 0.05f,
+                                xMm = safeX_mm,
+                                yMm = safeY_mm,
+                                widthMm = 50f, // Default Width 50mm
+                                heightMm = 10f, // Default Height 10mm
                                 color = currentTextColor,
                                 fontSize = currentTextSize,
                                 isBold = isBold,
@@ -230,25 +225,36 @@ fun EditablePageContainer(
                 )
             }
     ) {
+        // --- LAYER 1: LAYOUT & BORDERS ---
         Canvas(modifier = Modifier.fillMaxSize()) {
+            val mLeft = config.marginLeft * pxPerMm
+            val mTop = config.marginTop * pxPerMm
+            val mRight = config.marginRight * pxPerMm
+            val mBottom = config.marginBottom * pxPerMm
+            val gap = config.borderGap * pxPerMm
+
             if (config.showOuterBorder) {
                 drawRect(Color(config.outerColor.red, config.outerColor.green, config.outerColor.blue),
-                    topLeft = Offset(mLeftPx, mTopPx),
-                    size = Size(paperW_px - mLeftPx - mRightPx, paperH_px - mTopPx - mBottomPx),
+                    topLeft = Offset(mLeft, mTop),
+                    size = Size(paperW_px - mLeft - mRight, paperH_px - mTop - mBottom),
                     style = Stroke(width = config.outerThickness))
             }
 
             if (config.showInnerBorder && config.showOuterBorder) {
+                val iL = mLeft + gap
+                val iT = mTop + gap
+                val iR = mRight + gap
+                val iB = mBottom + gap
                 drawRect(Color(config.innerColor.red, config.innerColor.green, config.innerColor.blue),
-                    topLeft = Offset(innerLeftPx, innerTopPx),
-                    size = Size(paperW_px - innerLeftPx - innerRightPx, paperH_px - innerTopPx - innerBottomPx),
+                    topLeft = Offset(iL, iT),
+                    size = Size(paperW_px - mLeft - mRight - 2*gap, paperH_px - mTop - mBottom - 2*gap),
                     style = Stroke(width = config.innerThickness))
             }
 
-            val layoutML = if (config.showInnerBorder) innerLeftPx else mLeftPx
-            val layoutMT = if (config.showInnerBorder) innerTopPx else mTopPx
-            val layoutMR = if (config.showInnerBorder) innerRightPx else mRightPx
-            val layoutMB = if (config.showInnerBorder) innerBottomPx else mBottomPx
+            val layoutML = if (config.showInnerBorder) mLeft + gap else mLeft
+            val layoutMT = if (config.showInnerBorder) mTop + gap else mTop
+            val layoutMR = if (config.showInnerBorder) mRight + gap else mRight
+            val layoutMB = if (config.showInnerBorder) mBottom + gap else mBottom
 
             drawPageLayout(
                 type = layoutType,
@@ -271,7 +277,8 @@ fun EditablePageContainer(
                 preDotted = preDotted,
                 postDotted = postDotted,
                 hScale = hScale,
-                vScale = vScale
+                vScale = vScale,
+                pxPerMm = pxPerMm // Pass scale factor
             )
 
             if (layoutType == PageLayoutType.BLANK && showPageNumber) {
@@ -296,18 +303,14 @@ fun EditablePageContainer(
             }
         }
 
-        // --- LAYER 2: BACKGROUND GRAPH (Legacy Fixed Graph) ---
-        val fullPageW_imgPx = widthMm * (38.0/10.0)
-        val graphScaleFactor = paperW_px / fullPageW_imgPx
-        val graphDim = remember(item.data, hScale, vScale) {
-            if (item.data.isEmpty()) GraphDimensions(0.0, 0.0) else calculateGraphDimensions(item.data, item.type, hScale, vScale)
-        }
-        val visualGraphW = (graphDim.width * graphScaleFactor).toFloat()
-        val visualGraphH = (graphDim.height * graphScaleFactor).toFloat()
-        val contentLeft = if(config.showInnerBorder) innerLeftPx else mLeftPx
-        val contentTop = if(config.showInnerBorder) innerTopPx else mTopPx
-        val contentRight = if(config.showInnerBorder) innerRightPx else mRightPx
-        val contentBottom = if(config.showInnerBorder) innerBottomPx else mBottomPx
+        // --- LAYER 2: BACKGROUND GRAPH (Legacy Panning Logic) ---
+        // Note: For legacy compatibility, we treat xOffset/yOffset as raw pixels but scale them by density
+        // Ideally, this should also move to MM, but we'll adapt it to the new Container.
+        val contentLeft = if(config.showInnerBorder) (config.marginLeft + config.borderGap) * pxPerMm else config.marginLeft * pxPerMm
+        val contentTop = if(config.showInnerBorder) (config.marginTop + config.borderGap) * pxPerMm else config.marginTop * pxPerMm
+        val contentRight = if(config.showInnerBorder) (config.marginRight + config.borderGap) * pxPerMm else config.marginRight * pxPerMm
+        val contentBottom = if(config.showInnerBorder) (config.marginBottom + config.borderGap) * pxPerMm else config.marginBottom * pxPerMm
+
         val contentW_px = paperW_px - contentLeft - contentRight
         val contentH_px = paperH_px - contentTop - contentBottom
 
@@ -320,19 +323,19 @@ fun EditablePageContainer(
             if(item.data.isNotEmpty()){
                 Box(
                     modifier = Modifier
-                        .offset { IntOffset((item.xOffset * graphScaleFactor).roundToInt(), (item.yOffset * graphScaleFactor).roundToInt()) }
-                        .size(with(density){ visualGraphW.toDp() }, with(density){ visualGraphH.toDp() })
+                        .offset { IntOffset(item.xOffset.roundToInt(), item.yOffset.roundToInt()) }
+                        // Background graph uses fillMaxSize logic inside GraphPageCanvas, so size here matters less
+                        // providing we give it enough space or use explicit size.
+                        // Using a large generic size so it doesn't clip immediately.
+                        .size(with(density){ paperW_px.toDp() }, with(density){ paperH_px.toDp() })
                         .pointerInput(Unit) {
                             detectDragGestures { change, dragAmount ->
                                 change.consume()
-                                val graphScaleFactorF = graphScaleFactor.toFloat()
-                                val dx = dragAmount.x / graphScaleFactorF
-                                val dy = dragAmount.y / graphScaleFactorF
-                                onGraphPosChange(item.xOffset + dx, item.yOffset + dy)
+                                onGraphPosChange(item.xOffset + dragAmount.x, item.yOffset + dragAmount.y)
                             }
                         }
                 ) {
-                    GraphPageCanvas(Modifier.fillMaxSize(), item.data, item.type, PaperSize.A4, true, hScale, vScale, config, showPre, showPost, preColor, postColor, preWidth, postWidth, preDotted, postDotted, preShowPoints, postShowPoints, showGrid, isTransparentOverlay = true)
+                    GraphPageCanvas(Modifier.fillMaxSize(), item.data, item.type, PaperSize.A4, true, hScale, vScale, config, showPre, showPost, preColor, postColor, preWidth, postWidth, preDotted, postDotted, preShowPoints, postShowPoints, showGrid, isTransparentOverlay = true, pxPerMm = pxPerMm)
                 }
             }
         }
@@ -347,10 +350,10 @@ fun EditablePageContainer(
 
             textAnnotations.forEach { txt ->
                 if (multiSelectedAnnotationIds.contains(txt.id)) {
-                    val x = txt.xPercent * paperW_px
-                    val y = txt.yPercent * paperH_px
-                    val w = txt.widthPercent * paperW_px
-                    val h = txt.heightPercent * paperH_px
+                    val x = txt.xMm * pxPerMm
+                    val y = txt.yMm * pxPerMm
+                    val w = txt.widthMm * pxPerMm
+                    val h = txt.heightMm * pxPerMm
                     minX = min(minX, x)
                     minY = min(minY, y)
                     maxX = max(maxX, x + w)
@@ -360,10 +363,10 @@ fun EditablePageContainer(
             }
             elements.forEach { el ->
                 if (multiSelectedElementIds.contains(el.id)) {
-                    val x = el.xPercent * paperW_px
-                    val y = el.yPercent * paperH_px
-                    val w = el.widthPercent * paperW_px
-                    val h = el.heightPercent * paperH_px
+                    val x = el.xMm * pxPerMm
+                    val y = el.yMm * pxPerMm
+                    val w = el.widthMm * pxPerMm
+                    val h = el.heightMm * pxPerMm
                     minX = min(minX, x)
                     minY = min(minY, y)
                     maxX = max(maxX, x + w)
@@ -446,10 +449,11 @@ fun EditablePageContainer(
                 val isSelected = el.id == selectedElementId || (isSelectToolActive && multiSelectedElementIds.contains(el.id))
                 var showContextMenu by remember { mutableStateOf(false) }
 
-                val xPx = paperW_px * el.xPercent
-                val yPx = paperH_px * el.yPercent
-                val wPx = paperW_px * el.widthPercent
-                val hPx = paperH_px * el.heightPercent
+                // CONVERT MM -> SCREEN PX FOR DISPLAY
+                val xPx = el.xMm * pxPerMm
+                val yPx = el.yMm * pxPerMm
+                val wPx = el.widthMm * pxPerMm
+                val hPx = el.heightMm * pxPerMm
 
                 var absolutePosition by remember { mutableStateOf(Offset.Zero) }
 
@@ -490,6 +494,7 @@ fun EditablePageContainer(
                         val awtPreColor = java.awt.Color(el.graphPreColor.red, el.graphPreColor.green, el.graphPreColor.blue)
                         val awtPostColor = java.awt.Color(el.graphPostColor.red, el.graphPostColor.green, el.graphPostColor.blue)
 
+                        // Pass pxPerMm for correct internal scaling
                         GraphPageCanvas(
                             modifier = Modifier.fillMaxSize(),
                             data = el.graphData,
@@ -511,6 +516,7 @@ fun EditablePageContainer(
                             postShowPoints = true,
                             showGrid = el.graphShowGrid,
                             isTransparentOverlay = true,
+                            pxPerMm = pxPerMm, // VITAL: Ensures scale matches container
 
                             // IMPORTANT: Pass the interactive state stored in ReportElement
                             riverOffsets = el.riverOffsets,
@@ -543,7 +549,15 @@ fun EditablePageContainer(
 
                     if (shouldShowDragHandle(el.id, isSelected)) {
                         Box(modifier = Modifier.align(Alignment.BottomCenter).offset(y = 20.dp).size(18.dp).background(Color(0xFFF0F0F0), CircleShape).clip(CircleShape).border(0.5.dp, Color.LightGray, CircleShape).pointerInput(Unit) {
-                            detectDragGestures(onDragStart = { onGlobalElementDragStart(el, absolutePosition) }, onDrag = { change, dragAmount -> change.consume(); onGlobalDrag(dragAmount) }, onDragEnd = { onGlobalDragEnd() })
+                            detectDragGestures(onDragStart = { onGlobalElementDragStart(el, absolutePosition) },
+                                onDrag = { change, dragAmount ->
+                                    change.consume();
+                                    // Update Drag in MM
+                                    el.xMm += dragAmount.x / pxPerMm
+                                    el.yMm += dragAmount.y / pxPerMm
+                                    onGlobalDrag(dragAmount)
+                                },
+                                onDragEnd = { onGlobalDragEnd() })
                         }, contentAlignment = Alignment.Center) { Icon(Icons.Default.DragIndicator, null, tint = Color.Gray, modifier = Modifier.size(12.dp)) }
 
                         if (!isSelectToolActive) {
@@ -560,19 +574,24 @@ fun EditablePageContainer(
 
                             fun resize(dx: Float, dy: Float, left: Boolean = false, top: Boolean = false) {
                                 val currentEl = elements[index]
-                                var cx = paperW_px * currentEl.xPercent
-                                var cy = paperH_px * currentEl.yPercent
-                                var cw = paperW_px * currentEl.widthPercent
-                                var ch = paperH_px * currentEl.heightPercent
 
-                                if (left) { cx += dx; cw -= dx } else cw += dx
-                                if (top) { cy += dy; ch -= dy } else ch += dy
+                                // CALCULATE IN MM
+                                var cx = currentEl.xMm
+                                var cy = currentEl.yMm
+                                var cw = currentEl.widthMm
+                                var ch = currentEl.heightMm
 
-                                val minSize = 20f
-                                if(cw < minSize) { if(left) cx -= (minSize - cw); cw = minSize }
-                                if(ch < minSize) { if(top) cy -= (minSize - ch); ch = minSize }
+                                val dxMm = dx / pxPerMm
+                                val dyMm = dy / pxPerMm
 
-                                elements[index] = currentEl.copy(xPercent = cx / paperW_px, yPercent = cy / paperH_px, widthPercent = cw / paperW_px, heightPercent = ch / paperH_px)
+                                if (left) { cx += dxMm; cw -= dxMm } else cw += dxMm
+                                if (top) { cy += dyMm; ch -= dyMm } else ch += dyMm
+
+                                val minSizeMm = 5f
+                                if(cw < minSizeMm) { if(left) cx -= (minSizeMm - cw); cw = minSizeMm }
+                                if(ch < minSizeMm) { if(top) cy -= (minSizeMm - ch); ch = minSizeMm }
+
+                                elements[index] = currentEl.copy(xMm = cx, yMm = cy, widthMm = cw, heightMm = ch)
                             }
 
                             Handle(Alignment.BottomEnd) { x, y -> resize(x, y) }
@@ -591,10 +610,11 @@ fun EditablePageContainer(
                 val isSelected = txt.id == selectedAnnotationId || (isSelectToolActive && multiSelectedAnnotationIds.contains(txt.id))
                 var showContextMenu by remember { mutableStateOf(false) }
 
-                val xPx = paperW_px * txt.xPercent
-                val yPx = paperH_px * txt.yPercent
-                val wPx = paperW_px * txt.widthPercent
-                val hPx = paperH_px * txt.heightPercent
+                // CONVERT MM -> SCREEN PX
+                val xPx = txt.xMm * pxPerMm
+                val yPx = txt.yMm * pxPerMm
+                val wPx = txt.widthMm * pxPerMm
+                val hPx = txt.heightMm * pxPerMm
 
                 var absolutePosition by remember { mutableStateOf(Offset.Zero) }
 
@@ -634,7 +654,8 @@ fun EditablePageContainer(
                         value = txt.text,
                         enabled = isSelected && !isSelectToolActive,
                         onValueChange = { str -> textAnnotations[index] = txt.copy(text = str) },
-                        textStyle = TextStyle(color = txt.color, fontSize = (txt.fontSize * zoomLevel).sp, fontWeight = if (txt.isBold) FontWeight.Bold else FontWeight.Normal, fontStyle = if (txt.isItalic) FontStyle.Italic else FontStyle.Normal, textDecoration = if (txt.isUnderline) TextDecoration.Underline else TextDecoration.None, textAlign = txt.textAlign, fontFamily = getFontFamily(txt.fontFamily)),
+                        // Scale Font: txt.fontSize (Points) -> Pixels approximately
+                        textStyle = TextStyle(color = txt.color, fontSize = (txt.fontSize * (pxPerMm / 3.78f)).sp, fontWeight = if (txt.isBold) FontWeight.Bold else FontWeight.Normal, fontStyle = if (txt.isItalic) FontStyle.Italic else FontStyle.Normal, textDecoration = if (txt.isUnderline) TextDecoration.Underline else TextDecoration.None, textAlign = txt.textAlign, fontFamily = getFontFamily(txt.fontFamily)),
                         modifier = Modifier.fillMaxSize().padding(4.dp)
                     )
 
@@ -649,7 +670,17 @@ fun EditablePageContainer(
                     }
 
                     if (shouldShowDragHandle(txt.id, isSelected)) {
-                        Box(modifier = Modifier.align(Alignment.BottomCenter).offset(y = 20.dp).size(18.dp).background(Color(0xFFF0F0F0), CircleShape).clip(CircleShape).border(0.5.dp, Color.LightGray, CircleShape).pointerInput(Unit) { detectDragGestures(onDragStart = { onGlobalDragStart(txt, absolutePosition) }, onDrag = { change, dragAmount -> change.consume(); onGlobalDrag(dragAmount) }, onDragEnd = { onGlobalDragEnd() }) }, contentAlignment = Alignment.Center) { Icon(Icons.Default.DragIndicator, contentDescription = "Drag", tint = Color.Gray, modifier = Modifier.size(12.dp)) }
+                        Box(modifier = Modifier.align(Alignment.BottomCenter).offset(y = 20.dp).size(18.dp).background(Color(0xFFF0F0F0), CircleShape).clip(CircleShape).border(0.5.dp, Color.LightGray, CircleShape).pointerInput(Unit) {
+                            detectDragGestures(onDragStart = { onGlobalDragStart(txt, absolutePosition) },
+                                onDrag = { change, dragAmount ->
+                                    change.consume();
+                                    // Update Drag in MM
+                                    txt.xMm += dragAmount.x / pxPerMm
+                                    txt.yMm += dragAmount.y / pxPerMm
+                                    onGlobalDrag(dragAmount)
+                                },
+                                onDragEnd = { onGlobalDragEnd() })
+                        }, contentAlignment = Alignment.Center) { Icon(Icons.Default.DragIndicator, contentDescription = "Drag", tint = Color.Gray, modifier = Modifier.size(12.dp)) }
 
                         if(!isSelectToolActive) {
                             val handleSize = 6.dp
@@ -658,20 +689,22 @@ fun EditablePageContainer(
 
                             fun updateResize(dx: Float, dy: Float, isLeft: Boolean, isTop: Boolean, lockX: Boolean = false, lockY: Boolean = false) {
                                 val currTxt = textAnnotations[index]
-                                val cx = currentPaperW * currTxt.xPercent
-                                val cy = currentPaperH * currTxt.yPercent
-                                val cw = currentPaperW * currTxt.widthPercent
-                                val ch = currentPaperH * currTxt.heightPercent
-                                var nx = cx; var ny = cy; var nw = cw; var nh = ch
+                                var cx = currTxt.xMm
+                                var cy = currTxt.yMm
+                                var cw = currTxt.widthMm
+                                var ch = currTxt.heightMm
 
-                                if (!lockX) { if (isLeft) { nx += dx; nw -= dx } else { nw += dx } }
-                                if (!lockY) { if (isTop) { ny += dy; nh -= dy } else { nh += dy } }
+                                val dxMm = dx / pxPerMm
+                                val dyMm = dy / pxPerMm
 
-                                val minSize = 20f
-                                if(nw < minSize) { if(isLeft) nx -= (minSize - nw); nw = minSize }
-                                if(nh < minSize) { if(isTop) ny -= (minSize - nh); nh = minSize }
+                                if (!lockX) { if (isLeft) { cx += dxMm; cw -= dxMm } else { cw += dxMm } }
+                                if (!lockY) { if (isTop) { cy += dyMm; ch -= dyMm } else { ch += dyMm } }
 
-                                textAnnotations[index] = currTxt.copy(xPercent = nx / currentPaperW, yPercent = ny / currentPaperH, widthPercent = nw / currentPaperW, heightPercent = nh / currentPaperH)
+                                val minSize = 5f
+                                if(cw < minSize) { if(isLeft) cx -= (minSize - cw); cw = minSize }
+                                if(ch < minSize) { if(isTop) cy -= (minSize - ch); ch = minSize }
+
+                                textAnnotations[index] = currTxt.copy(xMm = cx, yMm = cy, widthMm = cw, heightMm = ch)
                             }
 
                             ResizeHandle(Alignment.TopCenter) { x, y -> updateResize(x, y, false, true, lockX = true) }

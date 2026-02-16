@@ -1,3 +1,4 @@
+// FILE: D:\LX_plotter_desktop\src\main\kotlin\PageLayout.kt
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -33,29 +34,34 @@ fun DrawScope.drawPageLayout(
     pageNumber: Int,
     totalPageCount: Int,
     annexureValue: String, // User input for "X"
-    b1Text: String, // NEW: User input for B1 Box
+    b1Text: String, // User input for B1 Box
     legendType: String = "X-Section",
     preColor: Color = Color.Black,
     postColor: Color = Color.Black,
     preDotted: Boolean = false,
     postDotted: Boolean = false,
     hScale: Double = 1.0,
-    vScale: Double = 1.0
+    vScale: Double = 1.0,
+    // NEW: Scale Factor (Pixels per Millimeter)
+    // Defaults to ~3.78 (96 DPI) if not provided, but should always be passed
+    pxPerMm: Float = 3.78f
 ) {
     if (type == PageLayoutType.BLANK) return
 
-    val left = marginLeftPx
     val top = marginTopPx
     val right = paperWidthPx - marginRightPx
     val bottom = paperHeightPx - marginBottomPx
 
-    // FIXED THICKNESS for the Engineering Layout Lines
-    val layoutStrokeWidth = 1.0f
+    // FIXED THICKNESS: Scale border thickness relative to resolution (approx 0.25mm)
+    val layoutStrokeWidth = 0.25f * pxPerMm
 
-    // 1. Calculate Scale Factor based on A3 Landscape Width (42.0 cm)
-    val scale = paperWidthPx / 42.0f
+    // 1. Calculate Scale Factor
+    // OLD BROKEN WAY: val scale = paperWidthPx / 42.0f
+    // NEW WAY: 1 Unit in logic = 1 CM (10 MM).
+    // This ensures dimensions match physical ruler size regardless of Zoom or PDF DPI.
+    val scale = 10.0f * pxPerMm
 
-    // 2. Define Dimensions (in A3 units/cm)
+    // 2. Define Dimensions (in units of CM, scaled to PX)
     val rowH = 1.0f * scale
     val logoW = 3.1f * scale
     val logoH = 1.0f * scale
@@ -77,7 +83,6 @@ fun DrawScope.drawPageLayout(
     val x_D_Split = x_D_Start + (3.7f * scale)
 
     // 4. Calculate Y Positions (Anchored to BOTTOM Margin)
-    val y_Row1 = bottom - rowH        // Top of Row 1 (Bottom of D1/A1)
     val y_Footer_Top = bottom - (3 * rowH)
     val y_Row_Mid1 = bottom - (2 * rowH)
     val y_Row_Mid2 = bottom - rowH
@@ -228,7 +233,7 @@ fun DrawScope.drawPageLayout(
         val cxA4 = x_A_Split + (x_B_Start - x_A_Split) / 2
         val cyA4 = y_Row_Mid1 + (y_Row_Mid2 - y_Row_Mid1) / 2
 
-        // Ensure line is exactly 3 units
+        // Ensure line is exactly 3 units (30mm if scale=10mm)
         val legendLineLen = 3.0f * scale
 
         val postEffect = if(postDotted) {
@@ -237,7 +242,7 @@ fun DrawScope.drawPageLayout(
             PathEffect.dashPathEffect(floatArrayOf(dashLen, dashLen), 0f)
         } else null
 
-        drawLine(postColor, Offset(cxA4 - legendLineLen/2, cyA4), Offset(cxA4 + legendLineLen/2, cyA4), strokeWidth = 1f, pathEffect = postEffect)
+        drawLine(postColor, Offset(cxA4 - legendLineLen/2, cyA4), Offset(cxA4 + legendLineLen/2, cyA4), strokeWidth = layoutStrokeWidth, pathEffect = postEffect)
 
         // MODIFICATION: Requirement 2 - A5 (Pre Monsoon Text)
         drawBoxText("Pre Monsoon", x_A_Start, y_Row_Mid2, x_A_Split, bottom, isBold = false, color = preColor, font = FontFamily.Serif)
@@ -252,6 +257,6 @@ fun DrawScope.drawPageLayout(
             PathEffect.dashPathEffect(floatArrayOf(dashLen, dashLen), 0f)
         } else null
 
-        drawLine(preColor, Offset(cxA6 - legendLineLen/2, cyA6), Offset(cxA6 + legendLineLen/2, cyA6), strokeWidth = 1f, pathEffect = preEffect)
+        drawLine(preColor, Offset(cxA6 - legendLineLen/2, cyA6), Offset(cxA6 + legendLineLen/2, cyA6), strokeWidth = layoutStrokeWidth, pathEffect = preEffect)
     }
 }

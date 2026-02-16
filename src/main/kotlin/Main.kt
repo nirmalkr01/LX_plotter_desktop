@@ -1,3 +1,4 @@
+// FILE: D:\LX_plotter_desktop\src\main\kotlin\Main.kt
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.expandVertically
@@ -17,8 +18,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -40,11 +43,49 @@ const val CURRENT_APP_VERSION = "1.0.3"
 const val UPDATE_JSON_URL = "https://lx-plotter-app-mxd1.vercel.app/version.json"
 
 fun main() = application {
-    Window(onCloseRequest = ::exitApplication, title = "LX Plotter (Engineering Edition)") {
-        window.minimumSize = Dimension(1024, 720)
-        MaterialTheme(colorScheme = lightColorScheme()) { DesktopApp() }
+    // Shared state for exit confirmation
+    var isOpen by remember { mutableStateOf(true) }
+
+    // Let's create a "CloseHandler" object to bridge the gap.
+    val closeHandler = remember { CloseHandler() }
+
+    if (isOpen) {
+        Window(
+            onCloseRequest = {
+                if (closeHandler.hasUnsavedChanges) {
+                    closeHandler.showExitDialog = true
+                } else {
+                    isOpen = false
+                }
+            },
+            title = "LX Plotter",
+            icon = painterResource("logo.ico")
+        ) {
+            window.minimumSize = Dimension(1024, 720)
+            MaterialTheme(colorScheme = lightColorScheme()) {
+                DesktopApp(
+                    closeHandler = closeHandler,
+                    onCloseApp = { isOpen = false }
+                )
+            }
+        }
     }
 }
+
+class CloseHandler {
+    var hasUnsavedChanges by mutableStateOf(false)
+    var showExitDialog by mutableStateOf(false)
+}
+
+// Data class to store the state of the Image Panel for Undo operations
+data class ImagePanelStateSnapshot(
+    val riverOffsets: Map<Int, Offset>,
+    val blueLineOffsets: Map<Int, Offset>,
+    val chLabelOffset: Offset,
+    val deletedRivers: List<Int>,
+    val deletedBlueLines: List<Int>,
+    val isChLabelDeleted: Boolean
+)
 
 fun Color.toAwtColor(): java.awt.Color = java.awt.Color(this.red, this.green, this.blue, this.alpha)
 
@@ -53,13 +94,30 @@ enum class ControlGroup { PROFILE, VIEW, ADJUST }
 enum class Screen { STARTUP, MAIN, REPORT_DOWNLOAD }
 
 @Composable
-fun DesktopApp() {
+fun DesktopApp(closeHandler: CloseHandler = remember { CloseHandler() }, onCloseApp: () -> Unit = {}) {
     val scope = rememberCoroutineScope()
     var currentScreen by remember { mutableStateOf(Screen.STARTUP) }
 
     // Data States
     var riverData by remember { mutableStateOf<List<RiverPoint>>(emptyList()) }
     var rawRiverData by remember { mutableStateOf<List<RawRiverPoint>>(emptyList()) }
+
+    // --- LIFTED STATE FOR IMAGE PANEL PERSISTENCE & UNDO ---
+    val riverOffsets = remember { mutableStateMapOf<Int, Offset>() }
+    val blueLineOffsets = remember { mutableStateMapOf<Int, Offset>() }
+    var chLabelOffset by remember { mutableStateOf(Offset.Zero) }
+    val deletedRivers = remember { mutableStateListOf<Int>() }
+    val deletedBlueLines = remember { mutableStateListOf<Int>() }
+    var isChLabelDeleted by remember { mutableStateOf(false) }
+
+    // Undo/Save Logic
+    // Store original data snapshot for "Undo All"
+    var originalRawData by remember { mutableStateOf<List<RawRiverPoint>>(emptyList()) }
+
+    // History stack for "Undo Current" (Last Action)
+    // Modified to store both Data and Visual Changes
+    var undoStack by remember { mutableStateOf(listOf<Pair<List<RawRiverPoint>, ImagePanelStateSnapshot>>()) }
+
     var statusMessage by remember { mutableStateOf("No file loaded") }
     var history by remember { mutableStateOf(loadHistory()) }
 
@@ -89,7 +147,6 @@ fun DesktopApp() {
     }
 
     // UI States
-    // showInstructions flag now controls the HelpDialog from HelpIcon.kt
     var showInstructions by remember { mutableStateOf(false) }
     var showCsvMapping by remember { mutableStateOf(false) }
     var pendingFile by remember { mutableStateOf<File?>(null) }
@@ -110,10 +167,10 @@ fun DesktopApp() {
     var postColor by remember { mutableStateOf(Color.Red) }
     var preDotted by remember { mutableStateOf(true) }
     var postDotted by remember { mutableStateOf(false) }
-    var preWidth by remember { mutableStateOf(1f) } // Default 1px
-    var postWidth by remember { mutableStateOf(1f) } // Default 1px
-    var preShowPoints by remember { mutableStateOf(false) } // Default No Points
-    var postShowPoints by remember { mutableStateOf(false) } // Default No Points
+    var preWidth by remember { mutableStateOf(1f) }
+    var postWidth by remember { mutableStateOf(1f) }
+    var preShowPoints by remember { mutableStateOf(false) }
+    var postShowPoints by remember { mutableStateOf(false) }
 
     // Scales & Limits
     var lHScale by remember { mutableStateOf(2000.0) }
@@ -135,6 +192,88 @@ fun DesktopApp() {
     var isManualMode by remember { mutableStateOf(false) }
     var manualZeroOverrides by remember { mutableStateOf(mapOf<Double, String>()) }
 
+    // Helper to capture current state for Undo
+    fun pushUndoState() {
+        val currentImageState = ImagePanelStateSnapshot(
+            riverOffsets = riverOffsets.toMap(),
+            blueLineOffsets = blueLineOffsets.toMap(),
+            chLabelOffset = chLabelOffset,
+            deletedRivers = deletedRivers.toList(),
+            deletedBlueLines = deletedBlueLines.toList(),
+            isChLabelDeleted = isChLabelDeleted
+        )
+        // Store deep copy of data
+        val currentDataState = rawRiverData.map { it.copy() }
+
+        undoStack = undoStack + (currentDataState to currentImageState)
+        closeHandler.hasUnsavedChanges = true
+    }
+
+    // Exit Confirmation Dialog
+    if (closeHandler.showExitDialog) {
+        AlertDialog(
+            onDismissRequest = { closeHandler.showExitDialog = false },
+            title = { Text("Unsaved Changes") },
+            text = { Text("Do you want to go back without saving? If yes then you loose your changes.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        closeHandler.showExitDialog = false
+                        onCloseApp()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) { Text("Yes, Exit") }
+            },
+            dismissButton = {
+                TextButton(onClick = { closeHandler.showExitDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // Save Confirmation Dialog (Triggered from Table)
+    var showSaveConfirmDialog by remember { mutableStateOf(false) }
+    if (showSaveConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showSaveConfirmDialog = false },
+            title = { Text("Save Changes") },
+            text = { Text("Do you want to save the current changes?") },
+            confirmButton = {
+                Button(onClick = {
+                    closeHandler.hasUnsavedChanges = false // "Saving" simply acknowledges the changes in memory for download eligibility
+                    showSaveConfirmDialog = false
+                    statusMessage = "Changes Saved. You can now download."
+                }) { Text("Save") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSaveConfirmDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // Back Home Confirmation Dialog
+    var showHomeConfirmDialog by remember { mutableStateOf(false) }
+    if (showHomeConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showHomeConfirmDialog = false },
+            title = { Text("Unsaved Changes") },
+            text = { Text("Do you want to go back without saving? If yes then you loose your changes.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showHomeConfirmDialog = false
+                        closeHandler.hasUnsavedChanges = false
+                        currentScreen = Screen.STARTUP
+                        // Note: We do NOT clear state here, so if user goes back to main, state persists unless file loaded again.
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) { Text("Yes, Go Back") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showHomeConfirmDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
     val dataErrors = remember(riverData) {
         riverData.filter { it.preMonsoon > it.postMonsoon }
             .map { DataError(it.chainage, it.distance, it.preMonsoon, it.postMonsoon) }
@@ -148,10 +287,9 @@ fun DesktopApp() {
                 minChainage = riverData.minOf { it.chainage }
                 maxChainage = riverData.maxOf { it.chainage }
 
-                // Initialize selection and Start Chainage if not set
                 if(selectedChainage == 0.0) {
                     selectedChainage = minChainage
-                    startChainage = minChainage // FIX: Initialize Start Ch to first chainage
+                    startChainage = minChainage
                     endChainage = maxChainage
                 }
             }
@@ -163,22 +301,36 @@ fun DesktopApp() {
         val (data, error) = parseCsvMapped(file, colMapping)
         if (error != null) { statusMessage = error } else {
             rawRiverData = data
+            originalRawData = data.map { it.copy() } // Clone for Undo All
+            undoStack = emptyList() // Reset history
+
+            // Reset Visual State for New File
+            riverOffsets.clear()
+            blueLineOffsets.clear()
+            chLabelOffset = Offset.Zero
+            deletedRivers.clear()
+            deletedBlueLines.clear()
+            isChLabelDeleted = false
+
             manualZeroOverrides = emptyMap(); isManualMode = false; selectedChainage = 0.0
+            closeHandler.hasUnsavedChanges = false // Reset dirty flag
+
             statusMessage = "Loaded ${file.name}"
             val newHistory = (listOf(file.absolutePath) + history).distinct().take(15)
             history = newHistory; saveHistory(newHistory)
 
-            // Store mapping state
             currentColMapping = colMapping
 
-            // Save initial preferences for this file
+            // *** FIX 1: FORCE PRE/POST VISIBILITY ON ***
+            showPre = true
+            showPost = true
+
             saveFilePrefs(
                 file.absolutePath, colMapping,
                 showPre, showPost, preDotted, postDotted, preWidth, postWidth, preShowPoints, postShowPoints,
                 lHScale, lVScale, xHScale, xVScale, preColor.toArgb(), postColor.toArgb()
             )
 
-            // TRANSITION TO MAIN WORKSPACE
             currentScreen = Screen.MAIN
         }
         showCsvMapping = false; pendingFile = null
@@ -186,14 +338,10 @@ fun DesktopApp() {
 
     fun prepareFileLoad(file: File) {
         if (!file.exists()) { statusMessage = "File not found"; return }
-
-        // CHECK IF PREFS EXIST
         val savedPrefs = loadFilePrefs(file.absolutePath)
-
-        pendingFile = file // Set pending file first
+        pendingFile = file
 
         if (savedPrefs != null) {
-            // Restore Mapping
             val mapObj = savedPrefs.getJSONObject("mapping")
             val mapping = mapOf(
                 "chainage" to mapObj.getInt("chainage"),
@@ -202,11 +350,12 @@ fun DesktopApp() {
                 "post" to mapObj.getInt("post")
             )
 
-            // Restore View Settings
             if (savedPrefs.has("view")) {
                 val v = savedPrefs.getJSONObject("view")
-                showPre = v.getBoolean("showPre")
-                showPost = v.getBoolean("showPost")
+                // *** FIX 2: FORCE AUTO ON even if saved as false ***
+                showPre = true // Was: v.getBoolean("showPre")
+                showPost = true // Was: v.getBoolean("showPost")
+
                 preDotted = v.getBoolean("preDotted")
                 postDotted = v.getBoolean("postDotted")
                 preWidth = v.getDouble("preWidth").toFloat()
@@ -220,14 +369,14 @@ fun DesktopApp() {
                 preColor = Color(v.getInt("preColor"))
                 postColor = Color(v.getInt("postColor"))
             }
-
-            // Skip dialog and load directly
             finishLoading(mapping)
         } else {
-            // Standard Load (Defaults applied by initialization)
-            // Reset to defaults if opening a new file without history
             preWidth = 1f; postWidth = 1f
             preShowPoints = false; postShowPoints = false
+
+            // *** FIX 3: Default to TRUE for new files ***
+            showPre = true
+            showPost = true
 
             val (headers, rows) = readCsvPreview(file)
             if (headers.isEmpty()) { statusMessage = "Empty or Invalid CSV"; return }
@@ -235,14 +384,11 @@ fun DesktopApp() {
         }
     }
 
-    // Auto-save Preferences whenever style/view settings change, IF we have a valid mapping loaded
     LaunchedEffect(
         showPre, showPost, preDotted, postDotted, preWidth, postWidth,
         preShowPoints, postShowPoints, lHScale, lVScale, xHScale, xVScale, preColor, postColor
     ) {
-        // Only save if we have an active file and valid mapping (implies file is loaded)
         if (history.isNotEmpty() && currentColMapping.isNotEmpty()) {
-            // The currently loaded file is technically history[0] if we just loaded it
             val currentPath = history.firstOrNull()
             if (currentPath != null) {
                 saveFilePrefs(
@@ -254,7 +400,6 @@ fun DesktopApp() {
         }
     }
 
-    // UPDATED: Use HelpDialog instead of InstructionDialog
     if (showInstructions) HelpDialog(onDismiss = { showInstructions = false })
     if (showCsvMapping) CsvMappingDialog(headers = csvHeaders, previewRows = csvPreviewRows, onDismiss = { showCsvMapping = false }, onConfirm = { finishLoading(it) })
 
@@ -276,17 +421,15 @@ fun DesktopApp() {
         Box(Modifier.weight(1f)) {
             when (currentScreen) {
                 Screen.STARTUP -> {
-                    // NEW START PAGE
                     WordStyleHomePage(
                         recentFiles = history,
                         onOpenFile = { prepareFileLoad(it) },
                         onNewProject = { pickFile()?.let { prepareFileLoad(it) } },
-                        // ADDED: Delete handler for history items
                         onDeleteFile = { pathToDelete ->
                             history = history.filter { it != pathToDelete }
                             saveHistory(history)
                         },
-                        onShowHelp = { showInstructions = true } // Trigger Help
+                        onShowHelp = { showInstructions = true }
                     )
                 }
                 Screen.REPORT_DOWNLOAD -> {
@@ -304,14 +447,29 @@ fun DesktopApp() {
                         preWidth = preWidth, postWidth = postWidth,
                         preShowPoints = preShowPoints, postShowPoints = postShowPoints,
                         showGrid = showGrid,
-                        onBack = { currentScreen = Screen.MAIN }
+                        onBack = { currentScreen = Screen.MAIN },
+
+                        // PASS STATE TO IMAGE PANEL VIA REPORT SCREEN
+                        riverOffsets = riverOffsets,
+                        blueLineOffsets = blueLineOffsets,
+                        chLabelOffset = chLabelOffset,
+                        onChLabelOffsetChange = { chLabelOffset = it },
+                        deletedRivers = deletedRivers,
+                        deletedBlueLines = deletedBlueLines,
+                        isChLabelDeleted = isChLabelDeleted,
+                        onChLabelDeleteChange = { isChLabelDeleted = it },
+
+                        onInteractionStart = { pushUndoState() },
+                        onResetAllInteractive = {
+                            pushUndoState()
+                            riverOffsets.clear(); blueLineOffsets.clear(); chLabelOffset = Offset.Zero
+                            deletedRivers.clear(); deletedBlueLines.clear(); isChLabelDeleted = false
+                        }
                     )
                 }
                 Screen.MAIN -> {
                     Column(modifier = Modifier.fillMaxSize()) {
 
-                        // 1. UNIFIED HEADER (MS Word Style)
-                        // Note: Removed onLoad and History toggle as requested for the main view
                         UnifiedAppHeader(
                             status = statusMessage,
                             errors = dataErrors,
@@ -320,26 +478,65 @@ fun DesktopApp() {
                             onToggleRibbon = { isRibbonOpen = !isRibbonOpen },
                             onGroupSelected = {
                                 activeControlGroup = it
-                                // If ribbon was closed, open it. If click same tab, maintain state.
                                 if(!isRibbonOpen) isRibbonOpen = true
                             },
-                            // Re-purposed to act as "Back to Home"
-                            onGoHome = { currentScreen = Screen.STARTUP },
+                            onGoHome = {
+                                if(closeHandler.hasUnsavedChanges) showHomeConfirmDialog = true
+                                else currentScreen = Screen.STARTUP
+                            },
                             onNavigateToError = { selectedGraphType = "X-Section"; selectedChainage = it },
                             onDownloadCsv = {
-                                if(riverData.isNotEmpty()) pickSaveFile("modified_data.csv")?.let { file ->
-                                    scope.launch(Dispatchers.IO) { saveCsv(riverData, file); statusMessage = "CSV Saved: ${file.name}" }
+                                if(closeHandler.hasUnsavedChanges) {
+                                    statusMessage = "Save changes first!"
+                                } else {
+                                    if(riverData.isNotEmpty()) pickSaveFile("modified_data.csv")?.let { file ->
+                                        scope.launch(Dispatchers.IO) { saveCsv(riverData, file); statusMessage = "CSV Saved: ${file.name}" }
+                                    }
                                 }
                             },
                             onGenerateReport = { if (riverData.isNotEmpty()) currentScreen = Screen.REPORT_DOWNLOAD else statusMessage = "Load data first" },
                             zoomLevel = graphZoom,
                             onZoomChange = { graphZoom = it },
-                            // Removed Help Icon Callback
-                            // NEW: Callback to auto-show table
-                            onEnsureTableVisible = { showTable = true }
+                            onEnsureTableVisible = { showTable = true },
+
+                            // PASSED UNDO/SAVE ACTIONS TO HEADER
+                            isDirty = closeHandler.hasUnsavedChanges,
+                            onUndoAll = {
+                                rawRiverData = originalRawData.map { it.copy() }
+                                manualZeroOverrides = emptyMap()
+
+                                // Reset Visuals too
+                                riverOffsets.clear()
+                                blueLineOffsets.clear()
+                                chLabelOffset = Offset.Zero
+                                deletedRivers.clear()
+                                deletedBlueLines.clear()
+                                isChLabelDeleted = false
+
+                                undoStack = emptyList()
+                                closeHandler.hasUnsavedChanges = false
+                            },
+                            onUndoLast = {
+                                if(undoStack.isNotEmpty()) {
+                                    val (previousData, previousImageState) = undoStack.last()
+
+                                    // Restore Data
+                                    rawRiverData = previousData
+
+                                    // Restore Visuals
+                                    riverOffsets.clear(); riverOffsets.putAll(previousImageState.riverOffsets)
+                                    blueLineOffsets.clear(); blueLineOffsets.putAll(previousImageState.blueLineOffsets)
+                                    chLabelOffset = previousImageState.chLabelOffset
+                                    deletedRivers.clear(); deletedRivers.addAll(previousImageState.deletedRivers)
+                                    deletedBlueLines.clear(); deletedBlueLines.addAll(previousImageState.deletedBlueLines)
+                                    isChLabelDeleted = previousImageState.isChLabelDeleted
+
+                                    undoStack = undoStack.dropLast(1)
+                                }
+                            },
+                            onSaveRequest = { showSaveConfirmDialog = true }
                         )
 
-                        // 2. RIBBON CONTENT (Collapsible)
                         AnimatedVisibility(
                             visible = isRibbonOpen && riverData.isNotEmpty(),
                             enter = expandVertically() + fadeIn(),
@@ -355,7 +552,6 @@ fun DesktopApp() {
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     when (activeControlGroup) {
-                                        // GROUP 1: PROFILE (Graph Types, Reference, Series)
                                         ControlGroup.PROFILE -> {
                                             MainPanelRibbonGroup("Graph Type") {
                                                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -371,9 +567,7 @@ fun DesktopApp() {
                                                     }
                                                 }
                                             }
-
                                             VerticalDivider(Modifier.padding(vertical = 8.dp))
-
                                             MainPanelRibbonGroup("Reference") {
                                                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -388,9 +582,7 @@ fun DesktopApp() {
                                                     }
                                                 }
                                             }
-
                                             VerticalDivider(Modifier.padding(vertical = 8.dp))
-
                                             MainPanelRibbonGroup("Visible Series") {
                                                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -406,8 +598,6 @@ fun DesktopApp() {
                                                 }
                                             }
                                         }
-
-                                        // GROUP 2: VIEW (Visual Style of Graph)
                                         ControlGroup.VIEW -> {
                                             MainPanelRibbonGroup("Pre-Monsoon Style") {
                                                 StyleSelector("Pre", preDotted, { preDotted=it }, preColor, { preColor=it }, preWidth, { preWidth=it }, preShowPoints, { preShowPoints=it })
@@ -432,8 +622,6 @@ fun DesktopApp() {
                                                 }
                                             }
                                         }
-
-                                        // GROUP 3: ADJUST (Scales & Ranges)
                                         ControlGroup.ADJUST -> {
                                             MainPanelRibbonGroup("Scale (1:X)") {
                                                 if (selectedGraphType == "L-Section") {
@@ -448,9 +636,7 @@ fun DesktopApp() {
                                                     }
                                                 }
                                             }
-
                                             VerticalDivider(Modifier.padding(vertical = 8.dp))
-
                                             MainPanelRibbonGroup("Navigation") {
                                                 if (selectedGraphType == "L-Section") {
                                                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -481,38 +667,30 @@ fun DesktopApp() {
                             }
                         }
 
-                        // 3. MAIN WORKSPACE (Split Left Panel / Graph / Table)
                         Row(modifier = Modifier.fillMaxSize()) {
-
-                            // No History Panel here (moved to Start Screen)
-
-                            // Center Content
                             Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
                                 if (riverData.isNotEmpty()) {
                                     val dataToPlot = remember(selectedGraphType, selectedChainage, riverData, startChainage, endChainage) { getCurrentViewData(riverData, selectedGraphType, selectedChainage, startChainage, endChainage) }
 
-                                    // Graph Box
                                     Box(modifier = Modifier.weight(1f).fillMaxWidth().border(1.dp, MaterialTheme.colorScheme.outline).background(Color.White)) {
                                         val h = if(selectedGraphType == "L-Section") lHScale else xHScale
                                         val v = if(selectedGraphType == "L-Section") lVScale else xVScale
                                         EngineeringCanvas(dataToPlot, selectedGraphType == "L-Section", showPre, showPost, h, v, preColor, postColor, preDotted, postDotted, preWidth, postWidth, preShowPoints, postShowPoints, showRuler, showGrid, zoomFactor = graphZoom)
 
-                                        // Floating Toggle for Table visibility
                                         FloatingActionButton(
                                             onClick = { showTable = !showTable },
                                             modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp).size(36.dp),
-                                            containerColor = Color(0xFFE1EDFD), // Light Blue
+                                            containerColor = Color(0xFFE1EDFD),
                                             elevation = FloatingActionButtonDefaults.elevation(2.dp)
                                         ) {
                                             Icon(
                                                 if(showTable) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
                                                 contentDescription = "Toggle Table",
-                                                tint = Color(0xFF2B579A) // Professional Blue
+                                                tint = Color(0xFF2B579A)
                                             )
                                         }
                                     }
 
-                                    // Collapsible Data Table
                                     AnimatedVisibility(
                                         visible = showTable,
                                         enter = expandVertically(),
@@ -520,7 +698,32 @@ fun DesktopApp() {
                                     ) {
                                         Column {
                                             Spacer(modifier = Modifier.height(12.dp))
-                                            CompactDataTable(data = dataToPlot, type = selectedGraphType, preColor = preColor, postColor = postColor, isManualMode = isManualMode, hasManualZero = manualZeroOverrides.containsKey(selectedChainage), onManualModeToggle = { isManualMode = it }, onUpdateValue = { id, newPre, newPost -> rawRiverData = rawRiverData.map { if (it.id == id) it.copy(pre = newPre, post = newPost) else it } }, onSetZero = { id -> manualZeroOverrides = manualZeroOverrides + (selectedChainage to id) }, onResetZero = { manualZeroOverrides = manualZeroOverrides.filterKeys { it != selectedChainage } })
+                                            CompactDataTable(
+                                                data = dataToPlot,
+                                                type = selectedGraphType,
+                                                preColor = preColor,
+                                                postColor = postColor,
+                                                isManualMode = isManualMode,
+                                                hasManualZero = manualZeroOverrides.containsKey(selectedChainage),
+                                                onManualModeToggle = { isManualMode = it },
+                                                onUpdateValue = { id, newPre, newPost ->
+                                                    // Push current state to history before modification
+                                                    pushUndoState()
+
+                                                    rawRiverData = rawRiverData.map { if (it.id == id) it.copy(pre = newPre, post = newPost) else it }
+                                                    closeHandler.hasUnsavedChanges = true
+                                                },
+                                                onSetZero = { id ->
+                                                    pushUndoState()
+                                                    manualZeroOverrides = manualZeroOverrides + (selectedChainage to id)
+                                                    closeHandler.hasUnsavedChanges = true
+                                                },
+                                                onResetZero = {
+                                                    pushUndoState()
+                                                    manualZeroOverrides = manualZeroOverrides.filterKeys { it != selectedChainage }
+                                                    closeHandler.hasUnsavedChanges = true
+                                                }
+                                            )
                                         }
                                     }
                                 } else {

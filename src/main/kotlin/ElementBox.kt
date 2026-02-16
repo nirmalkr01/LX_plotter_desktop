@@ -1,3 +1,4 @@
+// FILE: D:\LX_plotter_desktop\src\main\kotlin\ElementBox.kt
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -22,10 +23,13 @@ enum class ElementType {
 data class ReportElement(
     val id: String = UUID.randomUUID().toString(),
     val type: ElementType,
-    var xPercent: Float = 0.1f,
-    var yPercent: Float = 0.1f,
-    var widthPercent: Float = 0.1f,
-    var heightPercent: Float = 0.1f,
+
+    // --- COORDINATES IN MILLIMETERS (MM) ---
+    var xMm: Float = 10f,
+    var yMm: Float = 10f,
+    var widthMm: Float = 50f,
+    var heightMm: Float = 50f,
+
     var strokeColor: Color = Color.Black,
     var fillColor: Color = Color.Transparent,
     var strokeWidth: Float = 2f,
@@ -84,13 +88,13 @@ fun ElementRenderer(
 
             when (element.type) {
                 ElementType.SQUARE -> {
-                    if (element.fillColor != Color.Transparent) {
+                    if (element.fillColor.alpha > 0f) {
                         drawRect(color = element.fillColor, size = size)
                     }
                     drawRect(color = element.strokeColor, size = size, style = stroke)
                 }
                 ElementType.CIRCLE -> {
-                    if (element.fillColor != Color.Transparent) {
+                    if (element.fillColor.alpha > 0f) {
                         drawOval(color = element.fillColor, size = size)
                     }
                     drawOval(color = element.strokeColor, size = size, style = stroke)
@@ -100,7 +104,7 @@ fun ElementRenderer(
                     path.lineTo(w, h)
                     path.lineTo(0f, h)
                     path.close()
-                    if (element.fillColor != Color.Transparent) {
+                    if (element.fillColor.alpha > 0f) {
                         drawPath(path, element.fillColor, style = Fill)
                     }
                     drawPath(path, element.strokeColor, style = stroke)
@@ -124,7 +128,7 @@ fun ElementRenderer(
                     path.lineTo(w * 0.7f, h / 2 - h * 0.3f)
                     path.lineTo(w * 0.7f, h / 2 + h * 0.3f)
                     path.close()
-                    if (element.fillColor != Color.Transparent) drawPath(path, element.fillColor, style = Fill)
+                    if (element.fillColor.alpha > 0f) drawPath(path, element.fillColor, style = Fill)
                     drawPath(path, element.strokeColor, style = Fill)
                 }
                 ElementType.ARROW_LEFT -> {
@@ -133,7 +137,7 @@ fun ElementRenderer(
                     path.lineTo(w * 0.3f, h / 2 - h * 0.3f)
                     path.lineTo(w * 0.3f, h / 2 + h * 0.3f)
                     path.close()
-                    if (element.fillColor != Color.Transparent) drawPath(path, element.fillColor, style = Fill)
+                    if (element.fillColor.alpha > 0f) drawPath(path, element.fillColor, style = Fill)
                     drawPath(path, element.strokeColor, style = Fill)
                 }
                 ElementType.ARROW_UP -> {
@@ -142,7 +146,7 @@ fun ElementRenderer(
                     path.lineTo(w / 2 - w * 0.3f, h * 0.3f)
                     path.lineTo(w / 2 + w * 0.3f, h * 0.3f)
                     path.close()
-                    if (element.fillColor != Color.Transparent) drawPath(path, element.fillColor, style = Fill)
+                    if (element.fillColor.alpha > 0f) drawPath(path, element.fillColor, style = Fill)
                     drawPath(path, element.strokeColor, style = Fill)
                 }
                 ElementType.ARROW_DOWN -> {
@@ -151,7 +155,7 @@ fun ElementRenderer(
                     path.lineTo(w / 2 - w * 0.3f, h * 0.7f)
                     path.lineTo(w / 2 + w * 0.3f, h * 0.7f)
                     path.close()
-                    if (element.fillColor != Color.Transparent) drawPath(path, element.fillColor, style = Fill)
+                    if (element.fillColor.alpha > 0f) drawPath(path, element.fillColor, style = Fill)
                     drawPath(path, element.strokeColor, style = Fill)
                 }
                 ElementType.ELBOW_ARROW_RIGHT_DOWN -> {
@@ -164,7 +168,7 @@ fun ElementRenderer(
                     headPath.lineTo(w - w*0.2f, h - h*0.2f)
                     headPath.lineTo(w + w*0.2f, h - h*0.2f)
                     headPath.close()
-                    if (element.fillColor != Color.Transparent) drawPath(headPath, element.fillColor, style = Fill)
+                    if (element.fillColor.alpha > 0f) drawPath(headPath, element.fillColor, style = Fill)
                     drawPath(headPath, element.strokeColor, style = Fill)
                 }
                 ElementType.ELBOW_ARROW_DOWN_RIGHT -> {
@@ -177,7 +181,7 @@ fun ElementRenderer(
                     headPath.lineTo(w - w*0.2f, h - h*0.2f)
                     headPath.lineTo(w - w*0.2f, h + h*0.2f)
                     headPath.close()
-                    if (element.fillColor != Color.Transparent) drawPath(headPath, element.fillColor, style = Fill)
+                    if (element.fillColor.alpha > 0f) drawPath(headPath, element.fillColor, style = Fill)
                     drawPath(headPath, element.strokeColor, style = Fill)
                 }
                 ElementType.ELBOW_ARROW_LEFT_DOWN -> {
@@ -190,7 +194,7 @@ fun ElementRenderer(
                     headPath.lineTo(0f - w*0.2f, h - h*0.2f)
                     headPath.lineTo(0f + w*0.2f, h - h*0.2f)
                     headPath.close()
-                    if (element.fillColor != Color.Transparent) drawPath(headPath, element.fillColor, style = Fill)
+                    if (element.fillColor.alpha > 0f) drawPath(headPath, element.fillColor, style = Fill)
                     drawPath(headPath, element.strokeColor, style = Fill)
                 }
                 else -> {}

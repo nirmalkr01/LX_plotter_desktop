@@ -1,11 +1,10 @@
+// FILE: D:\LX_plotter_desktop\src\main\kotlin\ImagePanel.kt
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.HorizontalScrollbar
-import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -16,7 +15,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
@@ -29,22 +27,30 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.Canvas
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.coerceAtLeast
 import kotlinx.coroutines.launch
 import kotlin.math.floor
 import kotlin.math.max
+import kotlin.math.min
 
 // Sealed class to identify what is selected
 sealed class InteractiveItem {
     data class RiverText(val index: Int, val isLeft: Boolean) : InteractiveItem()
     data class BlueLine(val index: Int, val isLeft: Boolean) : InteractiveItem()
     data object ChainageLabel : InteractiveItem()
+    data object TableRightBoundary : InteractiveItem()
+    data object TableLeftBoundary : InteractiveItem()
 
     // NEW: L-Section Specific Items
     data object LSecPreArrow : InteractiveItem()
@@ -60,11 +66,11 @@ data class LSectionSplit(val index: Int, val start: Double, val end: Double)
 fun ImagePanel(
     riverData: List<RiverPoint>,
     activeGraphId: Double,
-    onActiveGraphIdChange: (Double) -> Unit, // NEW CALLBACK
+    onActiveGraphIdChange: (Double) -> Unit,
     startCh: Double,
     endCh: Double,
     selectedGraphType: String,
-    onGraphTypeChange: (String) -> Unit, // NEW CALLBACK
+    onGraphTypeChange: (String) -> Unit,
     lHScale: Double, lVScale: Double,
     xHScale: Double, xVScale: Double,
     showPre: Boolean, showPost: Boolean,
@@ -77,13 +83,30 @@ fun ImagePanel(
     targetPaperSize: PaperSize = PaperSize.A3,
     targetIsLandscape: Boolean = true,
     onAddToReport: (ReportElement) -> Unit,
-    onStatusChange: (String) -> Unit
+    onStatusChange: (String) -> Unit,
+
+    // --- STATE HOISTED FROM MAIN.KT FOR PERSISTENCE & UNDO ---
+    riverOffsets: MutableMap<Int, Offset>,
+    blueLineOffsets: MutableMap<Int, Offset>,
+    chLabelOffset: Offset,
+    onChLabelOffsetChange: (Offset) -> Unit,
+    deletedRivers: MutableList<Int>,
+    deletedBlueLines: MutableList<Int>,
+    isChLabelDeleted: Boolean,
+    onChLabelDeleteChange: (Boolean) -> Unit,
+    onInteractionStart: () -> Unit,
+    onResetAllInteractive: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
 
     // --- INTERNAL CHAINAGE STATE ---
     var currentStartCh by remember(startCh) { mutableStateOf(startCh) }
     var currentEndCh by remember(endCh) { mutableStateOf(endCh) }
+
+    // --- TABLE RESIZE STATE (Local) ---
+    var tableRightWidthOffset by remember { mutableStateOf(0f) }
+    var tableLeftWidthOffset by remember { mutableStateOf(0f) }
 
     // --- AUTO SPLIT STATE ---
     var generatedSplits by remember { mutableStateOf<List<LSectionSplit>>(emptyList()) }
@@ -122,14 +145,10 @@ fun ImagePanel(
 
     // --- ZOOM STATE ---
     var imageZoom by remember { mutableStateOf(1.0f) }
+    var autoZoomPerformed by remember { mutableStateOf(false) }
 
-    // --- INTERACTIVE ELEMENT STATE ---
-    val riverOffsets = remember { mutableStateMapOf<Int, Offset>() }
-    val blueLineOffsets = remember { mutableStateMapOf<Int, Offset>() }
-    var chLabelOffset by remember { mutableStateOf(Offset.Zero) }
-    val deletedRivers = remember { mutableStateListOf<Int>() }
-    val deletedBlueLines = remember { mutableStateListOf<Int>() }
-    var isChLabelDeleted by remember { mutableStateOf(false) }
+    // --- INTERACTIVE ELEMENT STATE (LOCAL SELECTION ONLY) ---
+    // Note: Actual data is now passed in via parameters
     var selectedItem by remember { mutableStateOf<InteractiveItem?>(null) }
 
     // UI Logic State
@@ -141,10 +160,14 @@ fun ImagePanel(
     val verticalScrollState = rememberScrollState()
 
     // Reset logic when graph type changes
-    LaunchedEffect(activeGraphId, selectedGraphType) {
+    LaunchedEffect(activeGraphId, selectedGraphType, riverData) { // Added riverData dependency
         selectedItem = null
         generatedSplits = emptyList()
         activeSplitIndex = -1
+        tableRightWidthOffset = 0f
+        tableLeftWidthOffset = 0f
+        autoZoomPerformed = false // Reset flag to trigger auto-zoom calculation
+
         // Reset to default limits
         if(selectedGraphType == "L-Section" && riverData.isNotEmpty()) {
             currentStartCh = riverData.minOf { it.chainage }
@@ -346,6 +369,8 @@ fun ImagePanel(
                                             is InteractiveItem.LSecPostArrow -> "Post Arrow"
                                             is InteractiveItem.LSecPreText -> "Pre Label"
                                             is InteractiveItem.LSecPostText -> "Post Label"
+                                            is InteractiveItem.TableRightBoundary -> "Table Right Edge"
+                                            is InteractiveItem.TableLeftBoundary -> "Table Left Edge"
                                             null -> "Select Object..."
                                         }
                                         Text(label, fontSize = 11.sp, maxLines = 1)
@@ -354,6 +379,9 @@ fun ImagePanel(
                                     }
                                     DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
                                         DropdownMenuItem(text = { Text("None", fontSize = 11.sp) }, onClick = { selectedItem = null; expanded = false })
+                                        HorizontalDivider()
+                                        DropdownMenuItem(text = { Text("Table Left Edge (Header)", fontSize = 11.sp) }, onClick = { selectedItem = InteractiveItem.TableLeftBoundary; expanded = false })
+                                        DropdownMenuItem(text = { Text("Table Right Edge", fontSize = 11.sp) }, onClick = { selectedItem = InteractiveItem.TableRightBoundary; expanded = false })
 
                                         if (selectedGraphType == "X-Section" && leftBankIndex != -1 && rightBankIndex != -1) {
                                             HorizontalDivider()
@@ -394,107 +422,6 @@ fun ImagePanel(
                 }
             }
 
-            HorizontalDivider(color = Color(0xFFE0E0E0))
-
-            // 3. CANVAS AREA (Scrollable & Centered)
-            BoxWithConstraints(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .background(Color.White)
-            ) {
-                if (activeGraphId == -100.0) {
-                    Text("No Data Selected", color = Color.Gray, modifier = Modifier.align(Alignment.Center))
-                } else {
-                    val hScale = if (selectedGraphType == "L-Section") lHScale else xHScale
-                    val vScale = if (selectedGraphType == "L-Section") lVScale else xVScale
-
-                    // Calculate required dimensions
-                    val graphDims = remember(viewData, hScale, vScale) {
-                        calculateGraphDimensions(viewData, selectedGraphType, hScale, vScale)
-                    }
-
-                    // Apply zoom to the content dimensions
-                    val contentWidth = maxOf(100.dp, (graphDims.width * imageZoom).dp)
-                    val contentHeight = maxOf(100.dp, (graphDims.height * imageZoom).dp)
-
-                    // Centering Logic
-                    val viewportWidth = maxWidth
-                    val viewportHeight = maxHeight
-                    // Buffer to ensure image isn't stuck to edge
-                    val buffer = 100.dp
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .horizontalScroll(horizontalScrollState)
-                            .verticalScroll(verticalScrollState)
-                    ) {
-                        // Wrapper to force at least viewport size for alignment
-                        Box(
-                            modifier = Modifier
-                                .width(maxOf(viewportWidth, contentWidth + buffer))
-                                .height(maxOf(viewportHeight, contentHeight + buffer)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Box(modifier = Modifier.size(contentWidth, contentHeight).background(Color.White)) {
-                                GraphPageCanvas(
-                                    modifier = Modifier.fillMaxSize(), data = viewData, type = selectedGraphType,
-                                    paperSize = PaperSize.A4, isLandscape = true, hScale = hScale, vScale = vScale, config = rawConfig,
-                                    showPre = showPre, showPost = showPost, preColor = preColor, postColor = postColor,
-                                    preDotted = preDotted, postDotted = postDotted, preWidth = preWidth, postWidth = postWidth,
-                                    preShowPoints = preShowPoints, postShowPoints = postShowPoints, showGrid = showGrid, isRawView = true,
-                                    // ENABLE TRANSPARENT OVERLAY to enforce 1:1 scaling with calculated dimensions
-                                    isTransparentOverlay = true,
-
-                                    datumSize = datumSize,
-                                    axisLabelSize = axisSize,
-                                    tableTextSize = tableTextSize,
-                                    tableGap = tableGap,
-
-                                    riverTextSize = if(selectedGraphType == "L-Section") lSecItemSize else riverTextSize,
-
-                                    chainageTextSize = chainageTextSize,
-
-                                    riverOffsets = riverOffsets,
-                                    blueLineOffsets = blueLineOffsets,
-                                    chLabelOffset = chLabelOffset,
-
-                                    deletedRiverIndices = deletedRivers,
-                                    deletedBlueLineIndices = deletedBlueLines,
-                                    isChLabelDeleted = isChLabelDeleted,
-
-                                    selectedItem = selectedItem,
-                                    onSelectItem = { },
-                                    onDragItem = { item, dragAmount ->
-                                        when(item) {
-                                            is InteractiveItem.RiverText -> riverOffsets[item.index] = (riverOffsets[item.index] ?: Offset.Zero) + dragAmount
-                                            is InteractiveItem.BlueLine -> blueLineOffsets[item.index] = (blueLineOffsets[item.index] ?: Offset.Zero) + dragAmount
-                                            is InteractiveItem.ChainageLabel -> chLabelOffset += dragAmount
-
-                                            is InteractiveItem.LSecPreArrow -> riverOffsets[-10] = (riverOffsets[-10] ?: Offset.Zero) + dragAmount
-                                            is InteractiveItem.LSecPreText -> riverOffsets[-11] = (riverOffsets[-11] ?: Offset.Zero) + dragAmount
-                                            is InteractiveItem.LSecPostArrow -> riverOffsets[-20] = (riverOffsets[-20] ?: Offset.Zero) + dragAmount
-                                            is InteractiveItem.LSecPostText -> riverOffsets[-21] = (riverOffsets[-21] ?: Offset.Zero) + dragAmount
-                                        }
-                                    },
-                                )
-                            }
-                        }
-                    }
-
-                    // Scrollbars
-                    HorizontalScrollbar(
-                        adapter = rememberScrollbarAdapter(horizontalScrollState),
-                        modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                    )
-                    VerticalScrollbar(
-                        adapter = rememberScrollbarAdapter(verticalScrollState),
-                        modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight()
-                    )
-                }
-            }
-
             // 3.5 SPLIT CHIPS BAR (Sub-section above footer)
             if (selectedGraphType == "L-Section" && generatedSplits.isNotEmpty()) {
                 HorizontalDivider()
@@ -527,6 +454,154 @@ fun ImagePanel(
                 }
             }
 
+            HorizontalDivider(color = Color(0xFFE0E0E0))
+
+            // 3. CANVAS AREA (Scrollable & Centered)
+            BoxWithConstraints(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .background(Color.White)
+            ) {
+                if (activeGraphId == -100.0) {
+                    Text("No Data Selected", color = Color.Gray, modifier = Modifier.align(Alignment.Center))
+                } else {
+                    val hScale = if (selectedGraphType == "L-Section") lHScale else xHScale
+                    val vScale = if (selectedGraphType == "L-Section") lVScale else xVScale
+
+                    val graphDimsMm = remember(viewData, hScale, vScale) {
+                        calculateGraphDimensionsMM(viewData, selectedGraphType, hScale, vScale)
+                    }
+
+                    // AUTO ZOOM LOGIC
+                    val containerW = maxWidth.value
+                    val containerH = maxHeight.value
+
+                    LaunchedEffect(graphDimsMm, containerW, containerH, activeGraphId) {
+                        if (!autoZoomPerformed && containerW > 0 && containerH > 0) {
+                            val basePxPerMm = 3.78f * density.density
+                            val contentWPx = (graphDimsMm.widthMm * basePxPerMm).toFloat()
+                            val contentHPx = (graphDimsMm.heightMm * basePxPerMm).toFloat()
+
+                            val contentWDp = contentWPx / density.density
+                            val contentHDp = contentHPx / density.density
+
+                            // Calculate ideal zoom to fit content in window
+                            val zoomX = containerW / contentWDp
+                            val zoomY = containerH / contentHDp
+                            val idealZoom = min(zoomX, zoomY).coerceAtMost(1.0f) // Cap at 100% to avoid blur
+
+                            // Apply slightly less than full fit for padding
+                            imageZoom = (idealZoom * 0.9f).coerceAtLeast(0.1f)
+                            autoZoomPerformed = true
+                        }
+                    }
+
+                    // Fix 1: Establish a stable base resolution (1x zoom) for precise drawing without pixel rounding errors
+                    val basePxPerMm = 3.78f * density.density
+
+                    // Apply ImageZoom to the Pixel Scale here so the canvas physically grows, keeping high res.
+                    val scaledPxPerMm = basePxPerMm * imageZoom
+
+                    // Calculate Box content bounds dynamically
+                    val contentWidthPx = (graphDimsMm.widthMm * scaledPxPerMm).toFloat()
+                    val contentHeightPx = (graphDimsMm.heightMm * scaledPxPerMm).toFloat()
+
+                    // Convert to DP
+                    val contentWidthDp = (contentWidthPx / density.density).dp
+                    val contentHeightDp = (contentHeightPx / density.density).dp
+
+                    val viewportWidth = maxWidth
+                    val viewportHeight = maxHeight
+                    val buffer = 100.dp
+
+                    val finalWidthDp = (contentWidthDp + buffer).coerceAtLeast(viewportWidth)
+                    val finalHeightDp = (contentHeightDp + buffer).coerceAtLeast(viewportHeight)
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .horizontalScroll(horizontalScrollState)
+                            .verticalScroll(verticalScrollState)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .width(finalWidthDp)
+                                .height(finalHeightDp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(contentWidthDp, contentHeightDp)
+                                    .background(Color.White)
+                            ) {
+                                GraphPageCanvas(
+                                    modifier = Modifier.fillMaxSize(), data = viewData, type = selectedGraphType,
+                                    paperSize = PaperSize.A4, isLandscape = true, hScale = hScale, vScale = vScale, config = rawConfig,
+                                    showPre = showPre, showPost = showPost, preColor = preColor, postColor = postColor,
+                                    preDotted = preDotted, postDotted = postDotted, preWidth = preWidth, postWidth = postWidth,
+                                    preShowPoints = preShowPoints, postShowPoints = postShowPoints, showGrid = showGrid, isRawView = true,
+                                    isTransparentOverlay = true,
+
+                                    pxPerMm = scaledPxPerMm, // Pass the ZOOMED scale factor!
+
+                                    datumSize = datumSize,
+                                    axisLabelSize = axisSize,
+                                    tableTextSize = tableTextSize,
+                                    tableGap = tableGap,
+
+                                    riverTextSize = if(selectedGraphType == "L-Section") lSecItemSize else riverTextSize,
+
+                                    chainageTextSize = chainageTextSize,
+
+                                    riverOffsets = riverOffsets,
+                                    blueLineOffsets = blueLineOffsets,
+                                    chLabelOffset = chLabelOffset,
+
+                                    deletedRiverIndices = deletedRivers,
+                                    deletedBlueLineIndices = deletedBlueLines,
+                                    isChLabelDeleted = isChLabelDeleted,
+
+                                    // Pass table offsets
+                                    tableRightWidthOffset = tableRightWidthOffset,
+                                    tableLeftWidthOffset = tableLeftWidthOffset,
+
+                                    selectedItem = selectedItem,
+                                    onSelectItem = { },
+                                    onDragItem = { item, dragAmount ->
+                                        // Trigger Undo on START, handled by onInteractionStart
+                                        // Here we just apply the delta
+                                        when(item) {
+                                            is InteractiveItem.RiverText -> riverOffsets[item.index] = (riverOffsets[item.index] ?: Offset.Zero) + dragAmount
+                                            is InteractiveItem.BlueLine -> blueLineOffsets[item.index] = (blueLineOffsets[item.index] ?: Offset.Zero) + dragAmount
+                                            is InteractiveItem.ChainageLabel -> onChLabelOffsetChange(chLabelOffset + dragAmount)
+
+                                            is InteractiveItem.LSecPreArrow -> riverOffsets[-10] = (riverOffsets[-10] ?: Offset.Zero) + dragAmount
+                                            is InteractiveItem.LSecPreText -> riverOffsets[-11] = (riverOffsets[-11] ?: Offset.Zero) + dragAmount
+                                            is InteractiveItem.LSecPostArrow -> riverOffsets[-20] = (riverOffsets[-20] ?: Offset.Zero) + dragAmount
+                                            is InteractiveItem.LSecPostText -> riverOffsets[-21] = (riverOffsets[-21] ?: Offset.Zero) + dragAmount
+
+                                            is InteractiveItem.TableRightBoundary -> {
+                                                val mmDelta = dragAmount.x / scaledPxPerMm
+                                                tableRightWidthOffset += mmDelta
+                                            }
+                                            is InteractiveItem.TableLeftBoundary -> {
+                                                val mmDelta = dragAmount.x / scaledPxPerMm
+                                                // Prevent resizing too small (min 10mm width for header)
+                                                if (tableLeftWidthOffset + mmDelta > -35f) {
+                                                    tableLeftWidthOffset += mmDelta
+                                                }
+                                            }
+                                        }
+                                    },
+                                    onInteractionStart = onInteractionStart
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             // 4. FOOTER (Bottom Toolbar)
             Surface(
                 modifier = Modifier.fillMaxWidth().height(40.dp),
@@ -543,10 +618,11 @@ fun ImagePanel(
                         // Reset Button
                         ImagePanelIconButton(
                             onClick = {
-                                riverOffsets.clear(); blueLineOffsets.clear(); chLabelOffset = Offset.Zero
-                                deletedRivers.clear(); deletedBlueLines.clear(); isChLabelDeleted = false
+                                onInteractionStart() // Snapshot before reset
+                                onResetAllInteractive()
                                 selectedItem = null; tableGap = 0f; datumSize = 14f; tableTextSize = 14f
                                 riverTextSize = 14f; chainageTextSize = 18f; lSecItemSize = 20f
+                                tableRightWidthOffset = 0f; tableLeftWidthOffset = 0f // Reset table size
                                 if(selectedGraphType == "L-Section") {
                                     currentStartCh = startCh; currentEndCh = endCh
                                     generatedSplits = emptyList(); activeSplitIndex = -1
@@ -559,15 +635,17 @@ fun ImagePanel(
                         // Delete Button
                         ImagePanelIconButton(
                             onClick = {
+                                onInteractionStart() // Trigger Undo Snapshot before deleting
                                 when(val item = selectedItem) {
                                     is InteractiveItem.RiverText -> if(!deletedRivers.contains(item.index)) deletedRivers.add(item.index)
                                     is InteractiveItem.BlueLine -> if(!deletedBlueLines.contains(item.index)) deletedBlueLines.add(item.index)
-                                    is InteractiveItem.ChainageLabel -> isChLabelDeleted = true
+                                    is InteractiveItem.ChainageLabel -> onChLabelDeleteChange(true)
                                     is InteractiveItem.LSecPreArrow -> deletedRivers.add(-10)
                                     is InteractiveItem.LSecPreText -> deletedRivers.add(-11)
                                     is InteractiveItem.LSecPostArrow -> deletedRivers.add(-20)
                                     is InteractiveItem.LSecPostText -> deletedRivers.add(-21)
                                     null -> {}
+                                    else -> {}
                                 }
                                 selectedItem = null
                             },
@@ -586,7 +664,8 @@ fun ImagePanel(
                                     } else {
                                         // Auto Split Logic
                                         val paperW_mm = if (targetIsLandscape) targetPaperSize.heightMm else targetPaperSize.widthMm
-                                        val slotW_mm = paperW_mm * selectedPartitionSlot.wPercent
+                                        // Use MM Width from Slot
+                                        val slotW_mm = selectedPartitionSlot.widthMm
                                         val axisPadding_mm = 22.0
                                         val excludeUnits_mm = 20.0
                                         val usableW_mm = slotW_mm - (axisPadding_mm + excludeUnits_mm)
@@ -631,10 +710,12 @@ fun ImagePanel(
 
                                 val newElement = ReportElement(
                                     type = ElementType.GRAPH_IMAGE,
-                                    xPercent = selectedPartitionSlot.xPercent,
-                                    yPercent = selectedPartitionSlot.yPercent,
-                                    widthPercent = selectedPartitionSlot.wPercent,
-                                    heightPercent = selectedPartitionSlot.hPercent,
+                                    // NO PERCENTS - Use MM coordinates from the Slot
+                                    xMm = selectedPartitionSlot.xMm,
+                                    yMm = selectedPartitionSlot.yMm,
+                                    widthMm = selectedPartitionSlot.widthMm,
+                                    heightMm = selectedPartitionSlot.heightMm,
+
                                     graphData = viewData,
                                     graphType = selectedGraphType,
                                     graphHScale = hS, graphVScale = vS,

@@ -1,9 +1,10 @@
-import androidx.compose.ui.geometry.Offset
+// FILE: D:\LX_plotter_desktop\src\main\kotlin\SelectTool.kt
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import kotlin.math.abs
-import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.max
 
 data class SelectionRect(
     val start: Offset,
@@ -15,20 +16,19 @@ data class SelectionRect(
 }
 
 // Logic to check if an item's bounds intersects or is contained by the selection rect
-// Items are stored as percentages, so we need the paper size to convert to pixels for comparison
+// Items are stored in MM, Selection is in PX. Needs pxPerMm.
 fun isItemInSelection(
     selRect: Rect,
-    itemXPercent: Float,
-    itemYPercent: Float,
-    itemWPercent: Float,
-    itemHPercent: Float,
-    paperWidthPx: Float,
-    paperHeightPx: Float
+    itemXMm: Float,
+    itemYMm: Float,
+    itemWMm: Float,
+    itemHMm: Float,
+    pxPerMm: Float
 ): Boolean {
-    val itemX = itemXPercent * paperWidthPx
-    val itemY = itemYPercent * paperHeightPx
-    val itemW = itemWPercent * paperWidthPx
-    val itemH = itemHPercent * paperHeightPx
+    val itemX = itemXMm * pxPerMm
+    val itemY = itemYMm * pxPerMm
+    val itemW = itemWMm * pxPerMm
+    val itemH = itemHMm * pxPerMm
 
     val itemRect = Rect(itemX, itemY, itemX + itemW, itemY + itemH)
 

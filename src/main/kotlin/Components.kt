@@ -1,3 +1,4 @@
+// FILE: D:\LX_plotter_desktop\src\main\kotlin\Components.kt
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -48,7 +49,8 @@ fun HeaderIconButton(
     onClick: () -> Unit,
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     tooltip: String,
-    tint: Color
+    tint: Color,
+    enabled: Boolean = true // Added enabled parameter
 ) {
     TooltipArea(
         tooltip = {
@@ -68,8 +70,8 @@ fun HeaderIconButton(
         },
         delayMillis = 500
     ) {
-        IconButton(onClick = onClick) {
-            Icon(icon, contentDescription = tooltip, tint = tint)
+        IconButton(onClick = onClick, enabled = enabled) {
+            Icon(icon, contentDescription = tooltip, tint = if(enabled) tint else Color.LightGray)
         }
     }
 }
@@ -88,18 +90,22 @@ fun UnifiedAppHeader(
     onNavigateToError: (Double) -> Unit,
     onDownloadCsv: () -> Unit,
     onGenerateReport: () -> Unit,
-    // NEW: Zoom Controls for Header
     zoomLevel: Float,
     onZoomChange: (Float) -> Unit,
-    // NEW: Callback to ensure table is open
-    onEnsureTableVisible: () -> Unit
+    onEnsureTableVisible: () -> Unit,
+    // NEW PARAMS for Undo/Save in Header
+    isDirty: Boolean = false,
+    onUndoAll: () -> Unit = {},
+    onUndoLast: () -> Unit = {},
+    onSaveRequest: () -> Unit = {}
 ) {
     var showDownloadMenu by remember { mutableStateOf(false) }
+    var showUndoMenu by remember { mutableStateOf(false) }
 
     Surface(
-        color = Color(0xFFF3F2F1), // Professional Light Gray
+        color = Color(0xFFF3F2F1),
         modifier = Modifier.fillMaxWidth().height(50.dp).customBorder(1.dp, Color(0xFFE0E0E0), bottom = true),
-        shadowElevation = 0.dp // Flat look like Office
+        shadowElevation = 0.dp
     ) {
         Row(
             modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
@@ -115,11 +121,10 @@ fun UnifiedAppHeader(
 
             Spacer(Modifier.width(16.dp))
 
-            // 2. Ribbon Tabs (Inline, clean text)
+            // 2. Ribbon Tabs
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                 ControlGroup.entries.forEach { group ->
                     val isActive = activeGroup == group && isRibbonOpen
-                    // FIXED: Lowercase first to ensure Title Case works (PROFILE -> profile -> Profile)
                     val label = group.name.lowercase().replaceFirstChar { it.titlecase() }
 
                     TextButton(
@@ -136,7 +141,7 @@ fun UnifiedAppHeader(
                     }
                 }
 
-                // Ribbon Collapse Toggle (Added Tooltip)
+                // Ribbon Collapse Toggle
                 TooltipArea(
                     tooltip = {
                         Surface(
@@ -170,14 +175,45 @@ fun UnifiedAppHeader(
 
             // 3. File Actions & Zoom
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                // Status Text
                 Text(status, fontSize = 11.sp, color = Color.Gray, maxLines = 1, modifier = Modifier.padding(end = 8.dp))
 
                 NotificationSection(errors, onNavigateToError, onEnsureTableVisible)
 
+                // --- NEW UNDO/SAVE SECTION IN HEADER ---
                 VerticalDivider(Modifier.height(20.dp).padding(horizontal = 4.dp))
 
-                // ZOOM CONTROL (Matched to File Panel)
+                // UNDO BUTTON
+                Box {
+                    HeaderIconButton(
+                        onClick = { showUndoMenu = true },
+                        icon = Icons.Default.Undo,
+                        tooltip = "Undo",
+                        tint = Color.DarkGray
+                    )
+                    DropdownMenu(expanded = showUndoMenu, onDismissRequest = { showUndoMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Undo Current") },
+                            onClick = { onUndoLast(); showUndoMenu = false }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Undo All") },
+                            onClick = { onUndoAll(); showUndoMenu = false }
+                        )
+                    }
+                }
+
+                // SAVE BUTTON
+                HeaderIconButton(
+                    onClick = onSaveRequest,
+                    icon = Icons.Default.Save,
+                    tooltip = "Save Changes",
+                    tint = if(isDirty) Color(0xFF2E7D32) else Color.LightGray,
+                    enabled = isDirty
+                )
+
+                VerticalDivider(Modifier.height(20.dp).padding(horizontal = 4.dp))
+
+                // ZOOM CONTROL
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     HeaderIconButton(
                         onClick = { onZoomChange((zoomLevel - 0.1f).coerceAtLeast(0.2f)) },
@@ -235,7 +271,6 @@ fun NotificationSection(
     val hasErrors = errors.isNotEmpty()
 
     Box {
-        // Wrapped Notification Icon in Tooltip
         TooltipArea(
             tooltip = {
                 Surface(
@@ -415,7 +450,7 @@ fun ColumnSelector(options: List<String>, selectedIdx: Int, onSelect: (Int) -> U
 fun LeftPanel(history: List<String>, onHistoryItemClick: (String) -> Unit, onDeleteHistoryItem: (String) -> Unit) {
     val borderColor = MaterialTheme.colorScheme.outlineVariant
     Column(
-        modifier = Modifier.width(260.dp).fillMaxHeight().background(Color(0xFFF8F9FA)) // Professional Gray
+        modifier = Modifier.width(260.dp).fillMaxHeight().background(Color(0xFFF8F9FA))
             .drawBehind { drawLine(borderColor, Offset(size.width, 0f), Offset(size.width, size.height), 1.dp.toPx()) }
             .padding(12.dp)
     ) {
@@ -437,7 +472,7 @@ fun HistoryItemRow(path: String, onClick: (String) -> Unit, onDelete: (String) -
     var showMenu by remember { mutableStateOf(false) }
     Card(
         shape = RoundedCornerShape(8.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White), // White background
+        colors = CardDefaults.cardColors(containerColor = Color.White),
         border = BorderStroke(1.dp, Color(0xFFE0E0E0)),
         modifier = Modifier.fillMaxWidth().clickable { onClick(path) }
     ) {
@@ -507,6 +542,10 @@ fun CompactDataTable(
             HeaderCell("Pre Monsoon:", preColor)
             HeaderCell("Difference:", Color(0xFF616161))
             HeaderCell(if (isLSection) "Chainage in mt:" else "Offset in mt:", Color.Black)
+
+            Spacer(Modifier.weight(1f))
+
+            // REMOVED UNDO/SAVE BUTTONS FROM HERE
         }
 
         Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
@@ -539,14 +578,15 @@ fun CompactDataTable(
                             }
                         }
 
-                        EditableDataCell(String.format("%.2f", point.postMonsoon), postColor, canEdit, isError) { newVal ->
+                        // UPDATED: Use %.3f format to prevent rounding off decimals
+                        EditableDataCell(String.format("%.3f", point.postMonsoon), postColor, canEdit, isError) { newVal ->
                             newVal.toDoubleOrNull()?.let { onUpdateValue(point.id, point.preMonsoon, it) }
                         }
-                        EditableDataCell(String.format("%.2f", point.preMonsoon), preColor, canEdit, isError) { newVal ->
+                        EditableDataCell(String.format("%.3f", point.preMonsoon), preColor, canEdit, isError) { newVal ->
                             newVal.toDoubleOrNull()?.let { onUpdateValue(point.id, it, point.postMonsoon) }
                         }
 
-                        DataCell(String.format("%.2f", diff), if (isError) Color.Red else Color.Black)
+                        DataCell(String.format("%.3f", diff), if (isError) Color.Red else Color.Black)
                         DataCell(String.format("%.1f", if (isLSection) point.chainage else point.distance), if (point.isZeroPoint) Color.Red else Color.Black)
                     }
                 }
@@ -657,13 +697,8 @@ fun StyleSelector(
 // UPDATED ScaleInput to fix deletion issue
 @Composable
 fun ScaleInput(label: String, value: Double, onValueChange: (Double) -> Unit) {
-    // Hold local state for the text field to allow intermediate editing (like empty string)
-    // Initialize with the current value, removing ".0" for cleaner integers
     var text by remember { mutableStateOf(value.toString().removeSuffix(".0")) }
 
-    // Sync with external changes (e.g. reset, file load)
-    // Only update local text if the external value differs significantly from what we have parsed.
-    // This prevents the cursor from jumping or "0." resetting to "0" while typing.
     LaunchedEffect(value) {
         val parsed = text.toDoubleOrNull() ?: 0.0
         if (parsed != value) {
@@ -672,20 +707,17 @@ fun ScaleInput(label: String, value: Double, onValueChange: (Double) -> Unit) {
     }
 
     Row(verticalAlignment = Alignment.CenterVertically) {
-        // Fix Even placement: Use a fixed width for the label so inputs align vertically
         Text(label, fontSize = 11.sp, modifier = Modifier.width(70.dp))
         Spacer(Modifier.width(4.dp))
         BasicTextField(
             value = text,
             onValueChange = { newText ->
-                // Regex: Allow empty, "-", integers, or decimals
                 if (newText.isEmpty() || newText == "-" || newText.matches(Regex("^-?\\d*\\.?\\d*\$"))) {
                     text = newText
                     val d = newText.toDoubleOrNull()
                     if (d != null) {
                         onValueChange(d)
                     } else if (newText.isEmpty() || newText == "-") {
-                        // Treat empty or just minus sign as 0.0 for the logic, but keep text field state as is
                         onValueChange(0.0)
                     }
                 }

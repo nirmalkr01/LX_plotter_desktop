@@ -1,76 +1,82 @@
+// FILE: D:\LX_plotter_desktop\src\main\kotlin\PartitionLogic.kt
 import androidx.compose.ui.geometry.Rect
 import kotlin.math.max
 import kotlin.math.floor
 
 // Represents a slot where a graph can go
+// UPDATED: Now uses Millimeters (MM) as the source of truth
 data class PartitionSlot(
     val id: String,
-    val rect: Rect, // In Pixels
-    val xPercent: Float,
-    val yPercent: Float,
-    val wPercent: Float,
-    val hPercent: Float
-)
+    val xMm: Float,
+    val yMm: Float,
+    val widthMm: Float,
+    val heightMm: Float
+) {
+    // Helper to get screen rect for a specific Zoom level (pxPerMm)
+    // This allows the UI to draw it correctly regardless of zoom
+    fun getScreenRect(pxPerMm: Float): Rect {
+        val l = xMm * pxPerMm
+        val t = yMm * pxPerMm
+        val r = (xMm + widthMm) * pxPerMm
+        val b = (yMm + heightMm) * pxPerMm
+        return Rect(l, t, r, b)
+    }
+}
 
 fun calculatePartitions(
-    paperWidthPx: Float,
-    paperHeightPx: Float,
-    marginTopPx: Float,
-    marginBottomPx: Float,
-    marginLeftPx: Float,
-    marginRightPx: Float,
+    paperWidthMm: Float, // Input in MM
+    paperHeightMm: Float, // Input in MM
+    marginTopMm: Float,
+    marginBottomMm: Float,
+    marginLeftMm: Float,
+    marginRightMm: Float,
     layoutType: PageLayoutType,
     graphType: String, // "X-Section" or "L-Section"
-    config: ReportConfig,
-    pxPerMm: Float
+    config: ReportConfig
 ): List<PartitionSlot> {
 
-    // 1. Calculate Scale Factor based on A3 Landscape Width (42.0 cm)
-    val scale = paperWidthPx / 42.0f
-    // The visual gap unit used in layout drawing
-    val unitGap = 0.1f * scale
+    // The visual gap unit (1mm)
+    val unitGapMm = 1.0f
 
-    var safeTop: Float
-    var safeBottom: Float
-    var safeLeft: Float
-    var safeRight: Float
+    var safeTopMm: Float
+    var safeBottomMm: Float
+    var safeLeftMm: Float
+    var safeRightMm: Float
 
-    // --- BOUNDARY CALCULATION ---
+    // --- BOUNDARY CALCULATION (IN MM) ---
     if (layoutType == PageLayoutType.ENGINEERING_STD) {
         // Engineering (Std) Layout Logic
-        val annexureHeight = 1.0f * scale
-        val annexureBottom = marginTopPx + annexureHeight
-        safeTop = annexureBottom + unitGap
+        // Defined relative to A3 width (420mm) standard
+        val scaleRatio = paperWidthMm / 420.0f
 
-        // Bottom Limit: Above Footer Stack
-        val rowH = 1.0f * scale
-        val footerStackHeight = 4.0f * rowH
-        val footerTopY = (paperHeightPx - marginBottomPx) - footerStackHeight
-        safeBottom = footerTopY - unitGap
+        val annexureHeight = 10.0f * scaleRatio
+        val footerHeight = 40.0f * scaleRatio
 
-        // Left/Right: Standard Margins
-        safeLeft = marginLeftPx + unitGap
-        safeRight = (paperWidthPx - marginRightPx) - unitGap
+        safeTopMm = marginTopMm + annexureHeight + unitGapMm
+        safeBottomMm = (paperHeightMm - marginBottomMm) - footerHeight - unitGapMm
+
+        safeLeftMm = marginLeftMm + unitGapMm
+        safeRightMm = (paperWidthMm - marginRightMm) - unitGapMm
 
     } else {
         // BLANK LAYOUT Logic
-        var currentL = marginLeftPx
-        var currentT = marginTopPx
-        var currentR = paperWidthPx - marginRightPx
-        var currentB = paperHeightPx - marginBottomPx
+        var currentL = marginLeftMm
+        var currentT = marginTopMm
+        var currentR = paperWidthMm - marginRightMm
+        var currentB = paperHeightMm - marginBottomMm
 
         // 1. Adjust for Outer Border
         if (config.showOuterBorder) {
-            val th = config.outerThickness
+            val th = 0.5f // Approx border thickness in mm
             currentL += th
             currentT += th
             currentR -= th
             currentB -= th
 
-            // 2. Adjust for Inner Border (RESTORED AS REQUESTED)
+            // 2. Adjust for Inner Border
             if (config.showInnerBorder) {
-                val gap = config.borderGap * pxPerMm
-                val innerTh = config.innerThickness
+                val gap = config.borderGap // Config value is treated as MM
+                val innerTh = 0.5f
                 currentL += (gap + innerTh)
                 currentT += (gap + innerTh)
                 currentR -= (gap + innerTh)
@@ -79,58 +85,50 @@ fun calculatePartitions(
         }
 
         // 3. Apply the minimal unit gap
-        safeLeft = currentL + unitGap
-        safeTop = currentT + unitGap
-        safeRight = currentR - unitGap
-        safeBottom = currentB - unitGap
+        safeLeftMm = currentL + unitGapMm
+        safeTopMm = currentT + unitGapMm
+        safeRightMm = currentR - unitGapMm
+        safeBottomMm = currentB - unitGapMm
     }
 
-    val safeW = safeRight - safeLeft
-    val safeH = safeBottom - safeTop
+    val safeWMm = safeRightMm - safeLeftMm
+    val safeHMm = safeBottomMm - safeTopMm
 
     // If space is invalid, return empty
-    if (safeW <= 20f || safeH <= 20f) return emptyList()
+    if (safeWMm <= 10f || safeHMm <= 10f) return emptyList()
 
     // --- GRID GENERATION ---
-    val safeWidthMm = safeW / pxPerMm
-    val safeHeightMm = safeH / pxPerMm
-
     val rows: Int
     val cols: Int
 
     if (graphType == "L-Section") {
         cols = 1
         val targetHeightMm = 75.0f
-        rows = max(1, floor(safeHeightMm / targetHeightMm).toInt())
+        rows = max(1, floor(safeHMm / targetHeightMm).toInt())
     } else {
-        val targetWidthMm = 180.0f
+        val targetWidthMm = 180.0f // Approx width for X-Sec
         val targetHeightMm = 75.0f
-        cols = max(1, floor(safeWidthMm / targetWidthMm).toInt())
-        rows = max(1, floor(safeHeightMm / targetHeightMm).toInt())
+        cols = max(1, floor(safeWMm / targetWidthMm).toInt())
+        rows = max(1, floor(safeHMm / targetHeightMm).toInt())
     }
 
     // --- SLOT CREATION ---
     val slots = mutableListOf<PartitionSlot>()
-    val cellW = safeW / cols
-    val cellH = safeH / rows
+    val cellWMm = safeWMm / cols
+    val cellHMm = safeHMm / rows
 
     for (r in 0 until rows) {
         for (c in 0 until cols) {
-            val pxX = safeLeft + (c * cellW)
-            val pxY = safeTop + (r * cellH)
-            val finalX = pxX
-            val finalY = pxY
-            val finalW = cellW
-            val finalH = cellH
+            val finalX = safeLeftMm + (c * cellWMm)
+            val finalY = safeTopMm + (r * cellHMm)
 
             slots.add(
                 PartitionSlot(
                     id = "slot_${r}_${c}",
-                    rect = Rect(finalX, finalY, finalX + finalW, finalY + finalH),
-                    xPercent = finalX / paperWidthPx,
-                    yPercent = finalY / paperHeightPx,
-                    wPercent = finalW / paperWidthPx,
-                    hPercent = finalH / paperHeightPx
+                    xMm = finalX,
+                    yMm = finalY,
+                    widthMm = cellWMm,
+                    heightMm = cellHMm
                 )
             )
         }
