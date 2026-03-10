@@ -191,7 +191,7 @@ fun ReportDownloadScreen(
                                                 statusMsg = "Selected slot no longer exists. Please re-select."
                                             }
                                         } else {
-                                            statusMsg = "Grid data not initialized. Please view the layout grid first."
+                                            statusMsg = "Grid data not initialized. Please view the page layout grid first."
                                         }
                                     } else {
                                         statusMsg = "No active page! Create a page in File View first."
@@ -264,11 +264,12 @@ fun calculateGraphDimensionsMM(
     val maxX = xVals.maxOrNull() ?: 10.0
     val yVals = data.map{it.preMonsoon} + data.map{it.postMonsoon}
 
-    // REMOVED ARTIFICIAL +/- 1.0 PADDING. Used exact floor and ceil.
+    // Exact floor and ceil bounds without artificial extra 1.0 padding
     val minY = if(yVals.isNotEmpty()) floor(yVals.minOrNull()!!) else 0.0
     val maxY = if(yVals.isNotEmpty()) ceil(yVals.maxOrNull()!!) else 10.0
 
     // SCALE LOGIC: 1:100 means 100 units real = 1 unit paper.
+    // 1m real = 1000mm. 1000mm / 100 = 10mm paper.
     val mmPerMeterX = 1000.0 / max(hScale, 1.0)
     val mmPerMeterY = 1000.0 / max(vScale, 1.0)
 
@@ -332,6 +333,7 @@ fun GraphPageCanvas(
     val density = LocalDensity.current
 
     // Calculate dynamic zoom factor based on the passed pxPerMm versus standard 96 DPI
+    // Standard 96 DPI = 3.78 px/mm
     val zoomFactor = pxPerMm / (3.78f * density.density)
 
     // Visual Scaling for Stroke Width and Text
@@ -377,15 +379,14 @@ fun GraphPageCanvas(
         val minX = xVals.minOrNull() ?: 0.0
         val maxX = xVals.maxOrNull() ?: 10.0
         val yVals = (if(showPre) sortedData.map{it.preMonsoon} else emptyList()) + (if(showPost) sortedData.map{it.postMonsoon} else emptyList())
-
         val minY = if(yVals.isNotEmpty()) floor(yVals.minOrNull()!!) else 0.0
         val maxY = if(yVals.isNotEmpty()) ceil(yVals.maxOrNull()!!) else 10.0
 
         val mmPerMeterX = 1000.0 / max(hScale, 1.0)
         val mmPerMeterY = 1000.0 / max(vScale, 1.0)
 
-        // CAD-OPTIMIZED Layout Constants (MM)
-        val padLeftMm = 25.0 + tableLeftWidthOffset // Reduced
+        // Layout Constants (MM)
+        val padLeftMm = 25.0 + tableLeftWidthOffset
         val padTopMm = 5.0
         val rowHMm = 6.0
         val graphHMm = (maxY - minY) * mmPerMeterY
@@ -424,6 +425,7 @@ fun GraphPageCanvas(
                 // Active Lines (Blue/Red)
                 if(!deletedBlueLineIndices.contains(index)) {
                     val lineOffset = blueLineOffsets[index] ?: Offset.Zero
+                    // Apply visual scale to offsets to ensure they stick to the point visually
                     val scaledOffset = Offset(lineOffset.x * zoomFactor, lineOffset.y * zoomFactor)
 
                     val lineX = x + scaledOffset.x
@@ -456,15 +458,20 @@ fun GraphPageCanvas(
                 val y = mY(getter(p))
                 if(first){ path.moveTo(x,y); first=false } else path.lineTo(x,y)
 
+                // FIX: Only draw points if we are in RawView (Image Panel)
+                // and the user has enabled them. This prevents dots on the final report page.
                 if(isRawView && showPoints) drawCircle(color, radius = (width * 2f) * visualStrokeScale, center = Offset(x, y))
             }
+            // Scale Dash Effect
             val dashLen = 10f * visualStrokeScale
             val gapLen = 10f * visualStrokeScale
             val effect = if(isDotted) PathEffect.dashPathEffect(floatArrayOf(dashLen, gapLen), 0f) else null
+
+            // Visual Width = Base Width * Zoom
             val visualWidth = width * 2f * visualStrokeScale
+
             drawPath(path, color, style = Stroke(width = visualWidth, pathEffect = effect))
         }
-
         if(showPre) drawSeries({it.preMonsoon}, preColor, preDotted, preWidth, preShowPoints)
         if(showPost) drawSeries({it.postMonsoon}, postColor, postDotted, postWidth, postShowPoints)
 
@@ -530,13 +537,14 @@ fun GraphPageCanvas(
             }
         }
 
+        // --- FIXED TABLE RENDERING ORDER ---
         // 1. Wipe Axis Area
         val yAxisTop = mY(maxY)
         if (!isTransparentOverlay) {
             drawRect(Color.White, topLeft = Offset(0f, yAxisTop), size = Size((padLeftMm * mmToPx).toFloat(), (tableYStartMm * mmToPx).toFloat() - yAxisTop))
         }
 
-        // 2. Draw Axis Lines & Ticks
+        // 2. Draw Axis Lines & Ticks (on top of wipe)
         drawLine(Color.Black, Offset((padLeftMm * mmToPx).toFloat(), yAxisTop), Offset((padLeftMm * mmToPx).toFloat(), (tableYStartMm * mmToPx).toFloat()), strokeWidth = 2f * visualStrokeScale)
 
         for(i in 1..((maxY-minY).toInt())) {
@@ -553,6 +561,7 @@ fun GraphPageCanvas(
         if (datumY > 0 && datumY < totalDrawH) {
             val txt = "DATUM=${minY}"
             val layout = textMeasurer.measure(txt, style = TextStyle(fontSize = scaledFontSize(datumSize)))
+            // Multiply the pixel offset by zoomFactor so it doesn't visually shift away when zooming
             drawText(layout, topLeft = Offset((padLeftMm * mmToPx).toFloat() - (8f * visualStrokeScale) - layout.size.width, datumY - (25f * zoomFactor)))
         }
 
@@ -564,13 +573,17 @@ fun GraphPageCanvas(
         drawLine(Color.Black, Offset(0f, yTableStart), Offset(xEnd, yTableStart), strokeWidth = 2f * visualStrokeScale)
         for(i in 1..3) drawLine(Color.Black, Offset(0f, yTableStart + i * rowH), Offset(xEnd, yTableStart + i * rowH), strokeWidth = 2f * visualStrokeScale)
 
+        // Vertical lines
         drawLine(Color.Black, Offset(0f, yTableStart), Offset(0f, yTableStart + 3 * rowH), strokeWidth = 2f * visualStrokeScale)
         drawLine(Color.Black, Offset((padLeftMm * mmToPx).toFloat(), yTableStart), Offset((padLeftMm * mmToPx).toFloat(), yTableStart + 3 * rowH), strokeWidth = 2f * visualStrokeScale)
         drawLine(Color.Black, Offset(xEnd, yTableStart), Offset(xEnd, yTableStart + 3 * rowH), strokeWidth = 2f * visualStrokeScale)
 
+        // Draw Interactive Drag Handle for Table Right Edge
         if (selectedItem is InteractiveItem.TableRightBoundary) {
             drawCircle(Color.Blue, radius = 6f * visualStrokeScale, center = Offset(xEnd, yTableStart + 1.5f * rowH))
         }
+
+        // Draw Interactive Drag Handle for Table Left Edge (Header Width)
         if (selectedItem is InteractiveItem.TableLeftBoundary) {
             val leftX = (padLeftMm * mmToPx).toFloat()
             drawCircle(Color.Blue, radius = 6f * visualStrokeScale, center = Offset(leftX, yTableStart + 1.5f * rowH))
