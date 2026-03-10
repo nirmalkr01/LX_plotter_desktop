@@ -144,7 +144,6 @@ fun saveRawGraph(
 }
 
 // --- CORE RENDERER: The High-Res Snapshot Component ---
-// This is exactly what the user sees on screen, rendered to a perfect off-screen canvas.
 @Composable
 fun PrintablePage(
     item: ReportPageItem,
@@ -261,13 +260,14 @@ fun PrintablePage(
                         isLandscape = isLandscape,
                         hScale = el.graphHScale,
                         vScale = el.graphVScale,
-                        config = ReportConfig(), // no border inside the widget
+                        config = ReportConfig(),
                         showPre = el.graphShowPre, showPost = el.graphShowPost,
                         preColor = java.awt.Color(el.graphPreColor.red, el.graphPreColor.green, el.graphPreColor.blue, el.graphPreColor.alpha),
                         postColor = java.awt.Color(el.graphPostColor.red, el.graphPostColor.green, el.graphPostColor.blue, el.graphPostColor.alpha),
                         preWidth = el.graphPreWidth, postWidth = el.graphPostWidth,
                         preDotted = el.graphPreDotted, postDotted = el.graphPostDotted,
-                        preShowPoints = true, postShowPoints = true, showGrid = el.graphShowGrid,
+                        preShowPoints = preShowPoints, postShowPoints = postShowPoints, // FIX: Pass down global visibility toggle
+                        showGrid = el.graphShowGrid,
                         isRawView = true, isTransparentOverlay = true, pxPerMm = pxPerMm,
                         datumSize = el.datumSize, axisLabelSize = el.axisLabelSize,
                         tableTextSize = el.tableTextSize, tableGap = el.tableGap,
@@ -293,12 +293,12 @@ fun PrintablePage(
                 modifier = Modifier
                     .offset { IntOffset(xPx.roundToInt(), yPx.roundToInt()) }
                     .size(with(density) { wPx.toDp() }, with(density) { hPx.toDp() })
-                    .padding(4.dp * (pxPerMm / 3.78f)) // Maintain the visual padding of the UI
+                    .padding(4.dp) // FIX: Removed scaling math, handled natively by Scene Density
             ) {
                 Text(
                     text = txt.text,
                     color = txt.color,
-                    fontSize = (txt.fontSize * (pxPerMm / 3.78f)).sp,
+                    fontSize = txt.fontSize.sp, // FIX: Let Scene Density scale this natively
                     fontWeight = if (txt.isBold) FontWeight.Bold else FontWeight.Normal,
                     fontStyle = if (txt.isItalic) FontStyle.Italic else FontStyle.Normal,
                     textDecoration = if (txt.isUnderline) TextDecoration.Underline else TextDecoration.None,
@@ -331,10 +331,45 @@ fun saveReportToPdf(
     preShowPoints: Boolean, postShowPoints: Boolean,
     showGrid: Boolean
 ) {
+    // FIX: Safety protocol to avoid "File Locked" Corruptions from Adobe Acrobat
+    var targetFile = file
+    if (targetFile.exists()) {
+        var canWrite = false
+        try {
+            java.io.FileOutputStream(targetFile, true).close()
+            canWrite = true
+        } catch (e: Exception) {}
+
+        if (!canWrite) {
+            // File is locked! Find the next available sequential name.
+            var counter = 1
+            while (true) {
+                val newName = "${file.nameWithoutExtension}_$counter.${file.extension}"
+                val candidate = File(file.parent, newName)
+                var candidateCanWrite = false
+                if (!candidate.exists()) {
+                    candidateCanWrite = true
+                } else {
+                    try {
+                        java.io.FileOutputStream(candidate, true).close()
+                        candidateCanWrite = true
+                    } catch (e: Exception) {}
+                }
+                if (candidateCanWrite) {
+                    targetFile = candidate
+                    break
+                }
+                counter++
+            }
+        }
+    }
+
     val doc = PDDocument()
     try {
         // High Quality 300 DPI Rendering Factor
         val exportPxPerMm = 11.81f
+        // Exact physical match to ensure fonts scale correctly in off-screen scene
+        val targetSceneDensity = exportPxPerMm / 3.78f
 
         reportItems.forEachIndexed { index, item ->
             val cfg = pageConfigs[item.id] ?: ReportConfig()
@@ -362,7 +397,7 @@ fun saveReportToPdf(
             val scene = ImageComposeScene(
                 width = widthPx,
                 height = heightPx,
-                density = Density(1f) // Ensure 1:1 Pixel Mapping to mathematical bounds
+                density = Density(targetSceneDensity) // FIX: Compose will now natively scale all Fonts and DP values!
             )
 
             scene.setContent {
@@ -404,7 +439,7 @@ fun saveReportToPdf(
                 contentStream.drawImage(pdImage, 0f, 0f, pWidthPts, pHeightPts)
             }
         }
-        doc.save(file)
+        doc.save(targetFile) // Save to our lock-safe target file
     } catch (e: Exception) {
         e.printStackTrace()
     } finally {
@@ -412,8 +447,8 @@ fun saveReportToPdf(
     }
 
     try {
-        if (file.exists() && file.length() > 0) {
-            Desktop.getDesktop().open(file)
+        if (targetFile.exists() && targetFile.length() > 0) {
+            Desktop.getDesktop().open(targetFile)
         }
     } catch (e: Exception) {
         e.printStackTrace()
