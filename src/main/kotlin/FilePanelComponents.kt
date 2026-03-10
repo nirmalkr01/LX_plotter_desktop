@@ -1,4 +1,3 @@
-// FILE: D:\LX_plotter_desktop\src\main\kotlin\FilePanelComponents.kt
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateIntOffsetAsState
 import androidx.compose.animation.core.spring
@@ -58,10 +57,6 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
-// Re-using data classes defined in other files (ReportElement, PartitionSlot, TextAnnotation)
-// Ensure TextAnnotation is defined in FilePanel.kt or Models.kt as per previous steps.
-// If it was local to this file, it should be defined here. Assuming it's in FilePanel.kt.
-
 @Composable
 fun FilePanel(
     reportItems: MutableList<ReportPageItem>,
@@ -75,16 +70,13 @@ fun FilePanel(
     showGrid: Boolean,
     onStatusChange: (String) -> Unit,
     externalPageElementData: MutableMap<String, MutableList<ReportElement>> = remember { mutableStateMapOf() },
+    pagePartitionsData: MutableMap<String, List<PartitionSlot>> = remember { mutableStateMapOf() }, // Added Partition State Access
     onActivePageChanged: (Int) -> Unit = {},
-    // --- NEW PARAMS FOR PARTITIONING ---
     activeGraphType: String = "X-Section",
     selectedPartitionSlot: PartitionSlot? = null,
     onPartitionSelected: (PartitionSlot?) -> Unit = {},
-    // NEW: Partition Mode State
     isPartitionModeEnabled: Boolean,
     onPartitionModeToggle: (Boolean) -> Unit,
-
-    // --- NEW PARAMS FOR NAV & TOGGLES ---
     onBack: () -> Unit,
     isLeftPanelVisible: Boolean,
     onLeftPanelToggle: () -> Unit,
@@ -392,7 +384,6 @@ fun FilePanel(
             pageConfigs[newItem.id] = ReportConfig()
             pageTextData[newItem.id] = mutableStateListOf()
             if(!pageElementData.containsKey(newItem.id)) pageElementData[newItem.id] = mutableStateListOf()
-
             pageAnnexureValues[newItem.id] = ""
             pageB1Values[newItem.id] = ""
             pageNumberOverrides[newItem.id] = "1"
@@ -623,11 +614,7 @@ fun FilePanel(
                         // Calculate Pixel Scale for this Preview
                         val widthMm = if (isLandscape) selectedPaperSize.heightMm else selectedPaperSize.widthMm
                         val pxPerMm = 3.78f * density.density * (zoomPercent / 100f) // Base 3.78 ~ 96 DPI
-                        val paperW_dp = with(density) { (widthMm * pxPerMm).toDp()} // Wait, widthMm * pxPerMm = pixels. ToDp() converts px to dp.
-                        // Correct: paperW_px = widthMm * pxPerMm. To display in Compose Dp: with(density) { paperW_px.toDp() }
-                        // But here we are calculating container size.
 
-                        // Better approach: Calculate size in Dp directly if possible, or Px then convert.
                         val paperW_px = widthMm * pxPerMm
                         val paperW_dp_final = with(density) { paperW_px.toDp() }
 
@@ -651,7 +638,7 @@ fun FilePanel(
                                     onAnnotationSelected = { id -> if(!isPartitionModeEnabled) { selectedAnnotationId = id; selectedElementId = null; if(id != null) activePageIndex = idx; if(!isSelectToolActive) { multiSelectedAnnotationIds.clear(); multiSelectedElementIds.clear() } } },
                                     onElementSelected = { id -> if(!isPartitionModeEnabled) { selectedElementId = id; selectedAnnotationId = null; if(id != null) activePageIndex = idx; if(!isSelectToolActive) { multiSelectedAnnotationIds.clear(); multiSelectedElementIds.clear() } } },
                                     onPageSelected = { activePageIndex = idx; if(!isSelectToolActive && !isPartitionModeEnabled) { selectedAnnotationId = null; selectedElementId = null } },
-                                    onToolUsed = { isTextToolActive = false }, onGraphPosChange = { x, y -> /* Legacy */ },
+                                    onToolUsed = { isTextToolActive = false }, onGraphPosChange = { _, _ ->  },
                                     onDeleteAnnotation = { id -> if(!isPartitionModeEnabled) { pageTextData[item.id]?.removeAll { it.id == id }; selectedAnnotationId = null } },
                                     onDeleteElement = { id -> if(!isPartitionModeEnabled) { pageElementData[item.id]?.removeAll { it.id == id }; selectedElementId = null } },
                                     onCopyAnnotation = { if(!isPartitionModeEnabled) { clipboardTextList = listOf(it); clipboardElementList = emptyList() } },
@@ -667,7 +654,7 @@ fun FilePanel(
                                     }},
                                     onGlobalElementDragStart = { el, pos -> if(!isPartitionModeEnabled) { draggingElement = el; draggingSourcePageId = item.id; draggingCurrentOffset = pos; isDraggingGroup = false } },
                                     onGroupDragStart = { pos, rect -> if(!isPartitionModeEnabled) { isDraggingGroup = true; draggingSourcePageId = item.id; draggingCurrentOffset = pos; groupDragStartBoxRelative = pos - rect.topLeft; groupGhostBounds = rect; groupGhostTexts = pageTextData[item.id]?.filter { multiSelectedAnnotationIds.contains(it.id) }?.map { it.copy() } ?: emptyList(); groupGhostElements = pageElementData[item.id]?.filter { multiSelectedElementIds.contains(it.id) }?.map { it.copy() } ?: emptyList() } },
-                                    onGlobalDrag = { dragDelta -> if(!isPartitionModeEnabled) { draggingCurrentOffset += dragDelta; /* Guide Logic Omitted for brevity */ } },
+                                    onGlobalDrag = { dragDelta -> if(!isPartitionModeEnabled) { draggingCurrentOffset += dragDelta } },
                                     onGlobalDragEnd = {
                                         activeAlignmentLines = emptyList()
                                         if(!isPartitionModeEnabled && draggingSourcePageId != null) {
@@ -678,22 +665,15 @@ fun FilePanel(
 
                                             if (droppedPageId != null && targetRect != null) {
                                                 // Calculate Scale of Source and Target
-                                                // Assuming uniform zoom, pxPerMm is same.
-                                                // We just need relative MM position.
-
                                                 val targetPxPerMm = 3.78f * density.density * (zoomPercent / 100f) // Must match preview logic
 
                                                 if (isDraggingGroup) {
-                                                    // Group drop logic (simplified for single page, cross-page needs more math)
-                                                    // For now, let's just commit the drag within the list (which happens live in EditablePageContainer)
-                                                    // If cross page:
+                                                    // Group drop logic
                                                     if(droppedPageId != draggingSourcePageId) {
                                                         // Transfer logic
                                                         val offsetPx = draggingCurrentOffset - groupDragStartBoxRelative - targetRect.topLeft
                                                         val dxMm = offsetPx.x / targetPxPerMm
                                                         val dyMm = offsetPx.y / targetPxPerMm
-
-                                                        // Move items...
                                                     }
                                                 } else {
                                                     // Single Item Drop Cross Page
@@ -727,18 +707,27 @@ fun FilePanel(
 
                                 if (isActive && isPartitionModeEnabled) {
                                     val config = pageConfigs[item.id] ?: ReportConfig()
-                                    val widthMm = if (isLandscape) selectedPaperSize.heightMm else selectedPaperSize.widthMm
                                     val heightMm = if (isLandscape) selectedPaperSize.widthMm else selectedPaperSize.heightMm
-                                    val pxPerMm = 3.78f * density.density * (zoomPercent / 100f)
 
-                                    val partitions = remember(widthMm, heightMm, config, activeGraphType, selectedLayoutType) {
-                                        calculatePartitions(widthMm.toFloat(), heightMm.toFloat(), config.marginTop, config.marginBottom, config.marginLeft, config.marginRight, selectedLayoutType, activeGraphType, config)
+                                    // Ensure the baseline default partition schema exists locally
+                                    LaunchedEffect(item.id, widthMm, heightMm, config, selectedLayoutType, activeGraphType) {
+                                        if (pagePartitionsData[item.id] == null) {
+                                            pagePartitionsData[item.id] = calculatePartitions(
+                                                widthMm.toFloat(), heightMm.toFloat(),
+                                                config.marginTop, config.marginBottom,
+                                                config.marginLeft, config.marginRight,
+                                                selectedLayoutType, activeGraphType, config
+                                            )
+                                        }
                                     }
+
+                                    // EXTRACT THE CURRENT GRID LAYER FOR THE PAGE
+                                    val partitions = pagePartitionsData[item.id] ?: emptyList()
 
                                     Canvas(modifier = Modifier.matchParentSize()) {
                                         partitions.forEach { slot ->
                                             val isSelected = selectedPartitionSlot?.id == slot.id
-                                            val rectPx = Rect(slot.xMm*pxPerMm, slot.yMm*pxPerMm, (slot.xMm+slot.widthMm)*pxPerMm, (slot.yMm+slot.heightMm)*pxPerMm)
+                                            val rectPx = slot.getScreenRect(pxPerMm) // Call helper bound conversion
                                             if (isSelected) {
                                                 drawRect(Color(0xFF2196F3).copy(alpha = 0.2f), topLeft = rectPx.topLeft, size = rectPx.size)
                                                 drawRect(Color(0xFF2196F3), topLeft = rectPx.topLeft, size = rectPx.size, style = Stroke(width = 2f))
@@ -750,7 +739,7 @@ fun FilePanel(
                                     Box(modifier = Modifier.matchParentSize().pointerInput(partitions) {
                                         detectTapGestures { offset ->
                                             val clicked = partitions.find {
-                                                val r = Rect(it.xMm*pxPerMm, it.yMm*pxPerMm, (it.xMm+it.widthMm)*pxPerMm, (it.yMm+it.heightMm)*pxPerMm)
+                                                val r = it.getScreenRect(pxPerMm)
                                                 r.contains(offset)
                                             }
                                             if (clicked != null) onPartitionSelected(clicked)
@@ -792,7 +781,60 @@ fun FilePanel(
                     val hPx = el.heightMm * pxPerMm
                     Box(modifier = Modifier.offset { IntOffset((draggingCurrentOffset.x - parentOffset.x).roundToInt(), (draggingCurrentOffset.y - parentOffset.y).roundToInt()) }
                         .zIndex(100f).size(with(density){wPx.toDp()}, with(density){hPx.toDp()})) {
-                        ElementRenderer(el)
+
+                        // FIX: Explicitly Render GraphPageCanvas when the ElementType is GRAPH_IMAGE
+                        if (el.type == ElementType.GRAPH_IMAGE) {
+                            val awtPreColor = java.awt.Color(
+                                (el.graphPreColor.red * 255).toInt(),
+                                (el.graphPreColor.green * 255).toInt(),
+                                (el.graphPreColor.blue * 255).toInt(),
+                                (el.graphPreColor.alpha * 255).toInt()
+                            )
+                            val awtPostColor = java.awt.Color(
+                                (el.graphPostColor.red * 255).toInt(),
+                                (el.graphPostColor.green * 255).toInt(),
+                                (el.graphPostColor.blue * 255).toInt(),
+                                (el.graphPostColor.alpha * 255).toInt()
+                            )
+
+                            GraphPageCanvas(
+                                modifier = Modifier.fillMaxSize(),
+                                data = el.graphData,
+                                type = el.graphType,
+                                paperSize = selectedPaperSize,
+                                isLandscape = isLandscape,
+                                hScale = el.graphHScale,
+                                vScale = el.graphVScale,
+                                config = ReportConfig(),
+                                showPre = el.graphShowPre,
+                                showPost = el.graphShowPost,
+                                preColor = awtPreColor,
+                                postColor = awtPostColor,
+                                preWidth = el.graphPreWidth,
+                                postWidth = el.graphPostWidth,
+                                preDotted = el.graphPreDotted,
+                                postDotted = el.graphPostDotted,
+                                preShowPoints = true,
+                                postShowPoints = true,
+                                showGrid = el.graphShowGrid,
+                                isTransparentOverlay = true,
+                                pxPerMm = pxPerMm,
+                                riverOffsets = el.riverOffsets,
+                                blueLineOffsets = el.blueLineOffsets,
+                                chLabelOffset = el.chLabelOffset,
+                                deletedRiverIndices = el.deletedRiverIndices,
+                                deletedBlueLineIndices = el.deletedBlueLineIndices,
+                                isChLabelDeleted = el.isChLabelDeleted,
+                                datumSize = el.datumSize,
+                                axisLabelSize = el.axisLabelSize,
+                                tableTextSize = el.tableTextSize,
+                                tableGap = el.tableGap,
+                                riverTextSize = el.riverTextSize,
+                                chainageTextSize = el.chainageTextSize
+                            )
+                        } else {
+                            ElementRenderer(el)
+                        }
                     }
                 }
             }

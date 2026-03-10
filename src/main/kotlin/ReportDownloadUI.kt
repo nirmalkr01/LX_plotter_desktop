@@ -1,4 +1,3 @@
-// FILE: D:\LX_plotter_desktop\src\main\kotlin\ReportDownloadUI.kt
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -94,6 +93,7 @@ fun ReportDownloadScreen(
     onInteractionStart: () -> Unit, // Snapshot trigger for Undo
     onResetAllInteractive: () -> Unit
 ) {
+    val density = LocalDensity.current
     var selectedGraphType by remember { mutableStateOf(initialGraphType) }
     val availableGraphs = remember(selectedGraphType, riverData) {
         if (selectedGraphType == "L-Section") listOf(-1.0)
@@ -111,6 +111,9 @@ fun ReportDownloadScreen(
     var activeFilePanelPageIndex by remember { mutableStateOf(0) }
     var selectedPartition by remember { mutableStateOf<PartitionSlot?>(null) }
     var isPartitionModeEnabled by remember { mutableStateOf(false) }
+
+    // NEW: Persistent Map tracking generated grid layout rules per page ID
+    val pagePartitionsData = remember { mutableStateMapOf<String, List<PartitionSlot>>() }
 
     // Panel Visibility State
     var isMiddlePanelVisible by remember { mutableStateOf(false) }
@@ -137,32 +140,59 @@ fun ReportDownloadScreen(
                                         val activePageId = reportItems[activeFilePanelPageIndex].id
                                         if (!pageElementData.containsKey(activePageId)) pageElementData[activePageId] = mutableStateListOf()
 
-                                        // 1. Calculate Physical Dimensions in MM
+                                        // Extract table width offsets stored securely in riverOffsets
+                                        val tLeft = newElement.riverOffsets[-30]?.x ?: 0f
+                                        val tRight = newElement.riverOffsets[-31]?.x ?: 0f
+
+                                        val chMm = newElement.chLabelOffset.y / (3.78f * density.density)
+
+                                        // 1. Calculate Physical Dimensions in MM including added table offsets
                                         val graphDimsMm = calculateGraphDimensionsMM(
                                             newElement.graphData,
                                             newElement.graphType,
                                             newElement.graphHScale,
-                                            newElement.graphVScale
+                                            newElement.graphVScale,
+                                            tLeft,
+                                            tRight,
+                                            newElement.tableGap,
+                                            chMm
                                         )
 
-                                        // 2. Get Selected Slot (MM Coordinates)
-                                        val slot = selectedPartition!!
+                                        // 2. Fetch the partitions mapped by FilePanel
+                                        val currentPartitions = pagePartitionsData[activePageId]
 
-                                        // 3. Center Graph in Slot
-                                        val centeredX = slot.xMm + (slot.widthMm - graphDimsMm.widthMm.toFloat()) / 2f
-                                        val centeredY = slot.yMm + (slot.heightMm - graphDimsMm.heightMm.toFloat()) / 2f
+                                        if (currentPartitions != null) {
+                                            val slot = currentPartitions.find { it.id == selectedPartition!!.id }
 
-                                        // 4. Create Element with MM Coordinates
-                                        val tightElement = newElement.copy(
-                                            xMm = centeredX,
-                                            yMm = centeredY,
-                                            widthMm = graphDimsMm.widthMm.toFloat(),
-                                            heightMm = graphDimsMm.heightMm.toFloat()
-                                        )
+                                            if (slot != null) {
+                                                // INTELLIGENT MERGING EXECUTION: Returns newly adapted grids and precise position
+                                                val placementResult = fitGraphIntoPartition(
+                                                    graphWidthMm = graphDimsMm.widthMm.toFloat(),
+                                                    graphHeightMm = graphDimsMm.heightMm.toFloat(),
+                                                    selectedPartition = slot,
+                                                    partitions = currentPartitions
+                                                )
 
-                                        pageElementData[activePageId]?.add(tightElement)
-                                        selectedPartition = null
-                                        statusMsg = "Added Graph to Page ${activeFilePanelPageIndex + 1}"
+                                                // Update Active Page's Grid Layout visually
+                                                pagePartitionsData[activePageId] = placementResult.partitions
+
+                                                // Apply Absolute Placement Coordinates dynamically (Scale Untouched)
+                                                val tightElement = newElement.copy(
+                                                    xMm = placementResult.placement.xMm,
+                                                    yMm = placementResult.placement.yMm,
+                                                    widthMm = graphDimsMm.widthMm.toFloat(),
+                                                    heightMm = graphDimsMm.heightMm.toFloat()
+                                                )
+
+                                                pageElementData[activePageId]?.add(tightElement)
+                                                selectedPartition = null
+                                                statusMsg = "Added Graph to Page ${activeFilePanelPageIndex + 1} (Merged if needed)"
+                                            } else {
+                                                statusMsg = "Selected slot no longer exists. Please re-select."
+                                            }
+                                        } else {
+                                            statusMsg = "Grid data not initialized. Please view the layout grid first."
+                                        }
                                     } else {
                                         statusMsg = "No active page! Create a page in File View first."
                                     }
@@ -196,6 +226,7 @@ fun ReportDownloadScreen(
                     showPre, showPost, preColor, postColor, preDotted, postDotted, preWidth, postWidth, preShowPoints, postShowPoints, showGrid,
                     onStatusChange = { statusMsg = it },
                     externalPageElementData = pageElementData,
+                    pagePartitionsData = pagePartitionsData, // PASS STATE DOWN TO UI
                     onActivePageChanged = { activeFilePanelPageIndex = it },
                     selectedPartitionSlot = selectedPartition,
                     onPartitionSelected = { selectedPartition = it },
@@ -216,33 +247,45 @@ fun ReportDownloadScreen(
 }
 
 // --- LOGIC: Calculate Dimensions in Millimeters ---
-fun calculateGraphDimensionsMM(data: List<RiverPoint>, type: String, hScale: Double, vScale: Double): GraphDimensions {
+fun calculateGraphDimensionsMM(
+    data: List<RiverPoint>,
+    type: String,
+    hScale: Double,
+    vScale: Double,
+    tableLeftWidthOffset: Float = 0f,
+    tableRightWidthOffset: Float = 0f,
+    tableGap: Float = 0f,
+    chLabelOffsetYMm: Float = 0f
+): GraphDimensions {
     if (data.isEmpty()) return GraphDimensions(100.0, 100.0)
 
     val xVals = if(type=="L-Section") data.map{it.chainage} else data.map{it.distance}
     val minX = xVals.minOrNull() ?: 0.0
     val maxX = xVals.maxOrNull() ?: 10.0
     val yVals = data.map{it.preMonsoon} + data.map{it.postMonsoon}
-    val minY = if(yVals.isNotEmpty()) floor(yVals.minOrNull()!!) - 1.0 else 0.0
-    val maxY = if(yVals.isNotEmpty()) yVals.maxOrNull()!! else 10.0
+
+    // REMOVED ARTIFICIAL +/- 1.0 PADDING. Used exact floor and ceil.
+    val minY = if(yVals.isNotEmpty()) floor(yVals.minOrNull()!!) else 0.0
+    val maxY = if(yVals.isNotEmpty()) ceil(yVals.maxOrNull()!!) else 10.0
 
     // SCALE LOGIC: 1:100 means 100 units real = 1 unit paper.
-    // 1m real = 1000mm. 1000mm / 100 = 10mm paper.
     val mmPerMeterX = 1000.0 / max(hScale, 1.0)
     val mmPerMeterY = 1000.0 / max(vScale, 1.0)
 
-    // Layout Constants in MM
-    val paddingLeftMm = 45.0 // Axis area
-    val rightPadMm = 15.0
-    val topPadMm = 15.0
-    val tableRowHMm = 10.0
-    val footerBufferMm = 15.0
+    // CAD-OPTIMIZED Layout Constants in MM
+    val paddingLeftMm = 25.0 + tableLeftWidthOffset // Reduced from 45.0 to match CAD
+    val rightPadMm = 5.0 + tableRightWidthOffset    // Reduced from 15.0
+    val topPadMm = 5.0                              // Reduced from 15.0
+    val tableRowHMm = 6.0                           // Reduced from 10.0 (3 rows = 18mm total)
+    val baseFooterBufferMm = 5.0                    // Reduced from 15.0
+    val extraFooterMm = max(0.0, chLabelOffsetYMm.toDouble())
+    val footerBufferMm = baseFooterBufferMm + extraFooterMm
 
     val graphContentHMm = (maxY - minY) * mmPerMeterY
     val tableTotalHMm = 3 * tableRowHMm
 
     val totalWidthMm = paddingLeftMm + ((maxX - minX) * mmPerMeterX) + rightPadMm
-    val totalHeightMm = topPadMm + graphContentHMm + tableTotalHMm + footerBufferMm
+    val totalHeightMm = topPadMm + graphContentHMm + tableGap + tableTotalHMm + footerBufferMm
 
     return GraphDimensions(totalWidthMm, totalHeightMm)
 }
@@ -283,15 +326,12 @@ fun GraphPageCanvas(
     selectedItem: InteractiveItem? = null,
     onSelectItem: (InteractiveItem?) -> Unit = {},
     onDragItem: (InteractiveItem, Offset) -> Unit = { _, _ -> },
-    onInteractionStart: () -> Unit = {},
-    tableRightWidthOffset: Float = 0f,
-    tableLeftWidthOffset: Float = 0f
+    onInteractionStart: () -> Unit = {}
 ) {
     val textMeasurer = rememberTextMeasurer()
     val density = LocalDensity.current
 
     // Calculate dynamic zoom factor based on the passed pxPerMm versus standard 96 DPI
-    // Standard 96 DPI = 3.78 px/mm
     val zoomFactor = pxPerMm / (3.78f * density.density)
 
     // Visual Scaling for Stroke Width and Text
@@ -302,17 +342,21 @@ fun GraphPageCanvas(
     val cPre = Color(preColor.red, preColor.green, preColor.blue)
     val cPost = Color(postColor.red, postColor.green, postColor.blue)
 
-    Canvas(modifier = modifier.pointerInput(data, hScale, vScale, riverOffsets, blueLineOffsets, chLabelOffset, selectedItem) {
+    // Remember the lambdas so pointerInput doesn't restart when offsets change
+    val currentOnDragItem by rememberUpdatedState(onDragItem)
+    val currentOnInteractionStart by rememberUpdatedState(onInteractionStart)
+
+    Canvas(modifier = modifier.pointerInput(selectedItem) {
         detectDragGestures(
             onDragStart = {
                 if (selectedItem != null) {
-                    onInteractionStart()
+                    currentOnInteractionStart()
                 }
             },
             onDrag = { change, dragAmount ->
                 change.consume()
                 if (selectedItem != null) {
-                    onDragItem(selectedItem, dragAmount)
+                    currentOnDragItem(selectedItem, dragAmount)
                 }
             }
         )
@@ -322,6 +366,10 @@ fun GraphPageCanvas(
         // Render everything using this multiplier: [Value in MM] * [pxPerMm]
         val mmToPx = pxPerMm
 
+        // Retrieve width changes directly from riverOffsets native map
+        val tableLeftWidthOffset = riverOffsets[-30]?.x ?: 0f
+        val tableRightWidthOffset = riverOffsets[-31]?.x ?: 0f
+
         // --- 2. PREPARE DATA ---
         val sortedData = data.sortedBy { if(type=="L-Section") it.chainage else it.distance }
             .distinctBy { if(type=="L-Section") it.chainage else it.distance }
@@ -329,16 +377,17 @@ fun GraphPageCanvas(
         val minX = xVals.minOrNull() ?: 0.0
         val maxX = xVals.maxOrNull() ?: 10.0
         val yVals = (if(showPre) sortedData.map{it.preMonsoon} else emptyList()) + (if(showPost) sortedData.map{it.postMonsoon} else emptyList())
-        val minY = if(yVals.isNotEmpty()) floor(yVals.minOrNull()!!) - 1.0 else 0.0
-        val maxY = if(yVals.isNotEmpty()) yVals.maxOrNull()!! else 10.0
+
+        val minY = if(yVals.isNotEmpty()) floor(yVals.minOrNull()!!) else 0.0
+        val maxY = if(yVals.isNotEmpty()) ceil(yVals.maxOrNull()!!) else 10.0
 
         val mmPerMeterX = 1000.0 / max(hScale, 1.0)
         val mmPerMeterY = 1000.0 / max(vScale, 1.0)
 
-        // Layout Constants (MM)
-        val padLeftMm = 45.0 + tableLeftWidthOffset // Adjustable Left Boundary
-        val padTopMm = 15.0
-        val rowHMm = 10.0
+        // CAD-OPTIMIZED Layout Constants (MM)
+        val padLeftMm = 25.0 + tableLeftWidthOffset // Reduced
+        val padTopMm = 5.0
+        val rowHMm = 6.0
         val graphHMm = (maxY - minY) * mmPerMeterY
         val tableYStartMm = padTopMm + graphHMm + tableGap
 
@@ -375,7 +424,6 @@ fun GraphPageCanvas(
                 // Active Lines (Blue/Red)
                 if(!deletedBlueLineIndices.contains(index)) {
                     val lineOffset = blueLineOffsets[index] ?: Offset.Zero
-                    // Apply visual scale to offsets to ensure they stick to the point visually
                     val scaledOffset = Offset(lineOffset.x * zoomFactor, lineOffset.y * zoomFactor)
 
                     val lineX = x + scaledOffset.x
@@ -403,23 +451,20 @@ fun GraphPageCanvas(
             val color = Color(awtColor.red, awtColor.green, awtColor.blue)
             val path = Path()
             var first = true
-            val sortedPoints = sortedData
-            sortedPoints.forEach{p->
+            sortedData.forEach{p->
                 val x = mX(if(type=="L-Section") p.chainage else p.distance)
                 val y = mY(getter(p))
                 if(first){ path.moveTo(x,y); first=false } else path.lineTo(x,y)
-                if(showPoints) drawCircle(color, radius = (width * 2f) * visualStrokeScale, center = Offset(x, y))
+
+                if(isRawView && showPoints) drawCircle(color, radius = (width * 2f) * visualStrokeScale, center = Offset(x, y))
             }
-            // Scale Dash Effect
             val dashLen = 10f * visualStrokeScale
             val gapLen = 10f * visualStrokeScale
             val effect = if(isDotted) PathEffect.dashPathEffect(floatArrayOf(dashLen, gapLen), 0f) else null
-
-            // Visual Width = Base Width * Zoom
             val visualWidth = width * 2f * visualStrokeScale
-
             drawPath(path, color, style = Stroke(width = visualWidth, pathEffect = effect))
         }
+
         if(showPre) drawSeries({it.preMonsoon}, preColor, preDotted, preWidth, preShowPoints)
         if(showPost) drawSeries({it.postMonsoon}, postColor, postDotted, postWidth, postShowPoints)
 
@@ -485,12 +530,13 @@ fun GraphPageCanvas(
             }
         }
 
-        // --- FIXED TABLE RENDERING ORDER ---
         // 1. Wipe Axis Area
         val yAxisTop = mY(maxY)
-        drawRect(Color.White, topLeft = Offset(0f, yAxisTop), size = Size((padLeftMm * mmToPx).toFloat(), (tableYStartMm * mmToPx).toFloat() - yAxisTop))
+        if (!isTransparentOverlay) {
+            drawRect(Color.White, topLeft = Offset(0f, yAxisTop), size = Size((padLeftMm * mmToPx).toFloat(), (tableYStartMm * mmToPx).toFloat() - yAxisTop))
+        }
 
-        // 2. Draw Axis Lines & Ticks (on top of wipe)
+        // 2. Draw Axis Lines & Ticks
         drawLine(Color.Black, Offset((padLeftMm * mmToPx).toFloat(), yAxisTop), Offset((padLeftMm * mmToPx).toFloat(), (tableYStartMm * mmToPx).toFloat()), strokeWidth = 2f * visualStrokeScale)
 
         for(i in 1..((maxY-minY).toInt())) {
@@ -507,30 +553,24 @@ fun GraphPageCanvas(
         if (datumY > 0 && datumY < totalDrawH) {
             val txt = "DATUM=${minY}"
             val layout = textMeasurer.measure(txt, style = TextStyle(fontSize = scaledFontSize(datumSize)))
-            // Scale the gap by visualStrokeScale (zoom) so it stays anchored correctly
-            val gapScale = 25f * visualStrokeScale
-            drawText(layout, topLeft = Offset((padLeftMm * mmToPx).toFloat() - (8f * visualStrokeScale) - layout.size.width, datumY - gapScale))
+            drawText(layout, topLeft = Offset((padLeftMm * mmToPx).toFloat() - (8f * visualStrokeScale) - layout.size.width, datumY - (25f * zoomFactor)))
         }
 
-        // 3. Draw Table Borders (AFTER Wipe, so top line persists)
-        val xEnd = mX(maxX) + (15.0 * mmToPx).toFloat() + (tableRightWidthOffset * mmToPx) // Apply Table Extension
+        // 3. Draw Table Borders
+        val xEnd = mX(maxX) + (5.0 * mmToPx).toFloat() + (tableRightWidthOffset * mmToPx) // Extension pad
         val yTableStart = (tableYStartMm * mmToPx).toFloat()
         val rowH = (rowHMm * mmToPx).toFloat()
 
         drawLine(Color.Black, Offset(0f, yTableStart), Offset(xEnd, yTableStart), strokeWidth = 2f * visualStrokeScale)
         for(i in 1..3) drawLine(Color.Black, Offset(0f, yTableStart + i * rowH), Offset(xEnd, yTableStart + i * rowH), strokeWidth = 2f * visualStrokeScale)
 
-        // Vertical lines
         drawLine(Color.Black, Offset(0f, yTableStart), Offset(0f, yTableStart + 3 * rowH), strokeWidth = 2f * visualStrokeScale)
         drawLine(Color.Black, Offset((padLeftMm * mmToPx).toFloat(), yTableStart), Offset((padLeftMm * mmToPx).toFloat(), yTableStart + 3 * rowH), strokeWidth = 2f * visualStrokeScale)
         drawLine(Color.Black, Offset(xEnd, yTableStart), Offset(xEnd, yTableStart + 3 * rowH), strokeWidth = 2f * visualStrokeScale)
 
-        // Draw Interactive Drag Handle for Table Right Edge
         if (selectedItem is InteractiveItem.TableRightBoundary) {
             drawCircle(Color.Blue, radius = 6f * visualStrokeScale, center = Offset(xEnd, yTableStart + 1.5f * rowH))
         }
-
-        // Draw Interactive Drag Handle for Table Left Edge (Header Width)
         if (selectedItem is InteractiveItem.TableLeftBoundary) {
             val leftX = (padLeftMm * mmToPx).toFloat()
             drawCircle(Color.Blue, radius = 6f * visualStrokeScale, center = Offset(leftX, yTableStart + 1.5f * rowH))

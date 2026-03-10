@@ -1,4 +1,5 @@
 // FILE: D:\LX_plotter_desktop\src\main\kotlin\Download.kt
+import androidx.compose.ui.geometry.Offset
 import org.apache.pdfbox.pdmodel.PDDocument
 import org.apache.pdfbox.pdmodel.PDPage
 import org.apache.pdfbox.pdmodel.PDPageContentStream
@@ -9,15 +10,12 @@ import java.awt.Color
 import java.awt.Desktop
 import java.awt.Font
 import java.awt.RenderingHints
-import java.awt.geom.AffineTransform
-import java.awt.geom.GeneralPath
 import java.awt.image.BufferedImage
 import java.io.File
 import javax.imageio.ImageIO
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
-import kotlin.math.min
 
 enum class PaperSize(val widthMm: Int, val heightMm: Int) {
     A0(841, 1189),
@@ -127,12 +125,9 @@ fun saveRawGraph(
 }
 
 // --- CORE RENDERER: Renders Page based on Millimeter Coordinates ---
-// pxPerMm: Controls output quality.
-// - For Screen Preview: Pass (Density * ZoomFactor * 3.78)
-// - For PDF Export: Pass 11.81 (300 DPI)
 fun renderPageToImage(
     data: List<RiverPoint>,
-    row: Int, col: Int, // Keeps compatibility with old sig, mostly unused in new logic
+    row: Int, col: Int,
     type: String,
     paperSize: PaperSize,
     isLandscape: Boolean,
@@ -152,11 +147,9 @@ fun renderPageToImage(
     totalPageCount: Int = 1,
     annexureValue: String = "",
     b1Text: String = "",
-    // NEW SCALE PARAMETER
     pxPerMm: Double = 11.81 // Defaults to High Res (300 DPI)
 ): BufferedImage? {
 
-    // 1. Calculate Canvas Size in Pixels based on MM size and Scale
     val widthMm = if (isLandscape) paperSize.heightMm else paperSize.widthMm
     val heightMm = if (isLandscape) paperSize.widthMm else paperSize.heightMm
 
@@ -168,7 +161,6 @@ fun renderPageToImage(
     val img = BufferedImage(pageW, pageH, BufferedImage.TYPE_INT_RGB)
     val g = img.createGraphics()
 
-    // High Quality Settings
     g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
     g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
     g.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
@@ -177,7 +169,6 @@ fun renderPageToImage(
     g.color = Color.WHITE
     g.fillRect(0, 0, pageW, pageH)
 
-    // 2. Calculate Margins (MM -> PX)
     val mL = config.marginLeft * pxPerMm
     val mR = config.marginRight * pxPerMm
     val mT = config.marginTop * pxPerMm
@@ -187,9 +178,7 @@ fun renderPageToImage(
     val awtOuterColor = Color(config.outerColor.red, config.outerColor.green, config.outerColor.blue)
     val awtInnerColor = Color(config.innerColor.red, config.innerColor.green, config.innerColor.blue)
 
-    // 3. Draw Borders
     g.color = awtOuterColor
-    // Scale stroke width: 1mm thick ~ 3px at screen, 12px at PDF
     g.stroke = BasicStroke((config.outerThickness * (pxPerMm / 3.78)).toFloat())
 
     if (config.showOuterBorder) {
@@ -202,12 +191,10 @@ fun renderPageToImage(
         }
     }
 
-    // 4. Draw Engineering Layout (If Selected)
     if(layoutType == PageLayoutType.ENGINEERING_STD) {
         drawAwtEngineeringLayout(g, pageW, pageH, mL, mT, mR, mB, awtOuterColor, annexureValue, b1Text, pageNumber, totalPageCount, hScale, vScale, config.legendType, preColor, postColor, pxPerMm)
     }
 
-    // 5. Draw Floating Elements (Stored in MM)
     val baseTx = g.transform
     elements.forEach { el ->
         g.transform = baseTx
@@ -215,7 +202,6 @@ fun renderPageToImage(
     }
     g.transform = baseTx
 
-    // 6. Draw Text Annotations (Stored in MM)
     textAnnotations.forEach { txt ->
         val x = (txt.xMm * pxPerMm).toInt()
         val y = (txt.yMm * pxPerMm).toInt()
@@ -224,7 +210,6 @@ fun renderPageToImage(
         g.color = Color(c.red, c.green, c.blue, c.alpha)
 
         val style = if (txt.isBold) Font.BOLD else Font.PLAIN
-        // Scale Font: 12pt approx 4.2mm. We scale relative to standard screen density.
         val scaledFontSize = (txt.fontSize * (pxPerMm / 3.78)).toInt()
         g.font = Font("Arial", style, scaledFontSize)
         g.drawString(txt.text, x, y)
@@ -234,7 +219,6 @@ fun renderPageToImage(
     return img
 }
 
-// --- HELPER: Draw Engineering Layout (MM Based) ---
 fun drawAwtEngineeringLayout(
     g: java.awt.Graphics2D,
     pageW: Int, pageH: Int,
@@ -252,8 +236,6 @@ fun drawAwtEngineeringLayout(
     val right = pageW - mR
     val top = mT
 
-    // Layout Constants in MM (Converted to PX)
-    // Based on original relative logic: 1.0 scale unit ~ 10mm
     val logoW = 31.0 * pxPerMm
     val logoH = 10.0 * pxPerMm
     val rowH = 10.0 * pxPerMm
@@ -263,16 +245,14 @@ fun drawAwtEngineeringLayout(
     val colCW = 82.0 * pxPerMm
     val colDW = 62.0 * pxPerMm
 
-    // X Positions
     val xD = right - colDW
     val xC = xD - colCW
     val xB = xC - colBW
     val xA = xB - colAW
 
-    val xASplit = xA + (54.0 * pxPerMm) // 5.4 units -> 54mm
-    val xDSplit = xD + (37.0 * pxPerMm) // 3.7 units -> 37mm
+    val xASplit = xA + (54.0 * pxPerMm)
+    val xDSplit = xD + (37.0 * pxPerMm)
 
-    // Y Positions
     val yFooterTop = bottom - (3 * rowH)
     val yRowMid1 = bottom - (2 * rowH)
     val yRowMid2 = bottom - rowH
@@ -281,11 +261,8 @@ fun drawAwtEngineeringLayout(
     g.color = color
     g.stroke = BasicStroke((1.0f * (pxPerMm/3.78f)).toFloat())
 
-    // 1. Logo Box
     g.drawRect((right - logoW).toInt(), top.toInt(), logoW.toInt(), logoH.toInt())
 
-    // 2. Footer Lines
-    // Verticals
     g.drawLine(xA.toInt(), yFooterTop.toInt(), xA.toInt(), bottom.toInt())
     g.drawLine(xD.toInt(), yD5Top.toInt(), xD.toInt(), bottom.toInt())
     g.drawLine(right.toInt(), yD5Top.toInt(), right.toInt(), bottom.toInt())
@@ -295,7 +272,6 @@ fun drawAwtEngineeringLayout(
     g.drawLine(xASplit.toInt(), yFooterTop.toInt(), xASplit.toInt(), bottom.toInt())
     g.drawLine(xDSplit.toInt(), yFooterTop.toInt(), xDSplit.toInt(), bottom.toInt())
 
-    // Horizontals
     g.drawLine(xA.toInt(), yFooterTop.toInt(), right.toInt(), yFooterTop.toInt())
     g.drawLine(xD.toInt(), yD5Top.toInt(), right.toInt(), yD5Top.toInt())
 
@@ -304,7 +280,6 @@ fun drawAwtEngineeringLayout(
     g.drawLine(xA.toInt(), yRowMid2.toInt(), xB.toInt(), yRowMid2.toInt())
     g.drawLine(xDSplit.toInt(), yRowMid2.toInt(), right.toInt(), yRowMid2.toInt())
 
-    // Helper for Text
     fun text(str: String, x1: Double, y1: Double, x2: Double, y2: Double, c: Color = Color.BLACK, bold: Boolean = false, scale: Double = 0.4) {
         val cx = x1 + (x2-x1)/2
         val cy = y1 + (y2-y1)/2
@@ -317,7 +292,6 @@ fun drawAwtEngineeringLayout(
         g.drawString(str, tx.toInt(), ty.toInt())
     }
 
-    // Draw Texts
     text("Annexure-$annexure", right-logoW, top, right, top+logoH)
     text("LEGEND:-", xA, yFooterTop-rowH, xB, yFooterTop)
     text("SCALE", xD, yFooterTop, xDSplit, yRowMid1, bold=true)
@@ -329,7 +303,6 @@ fun drawAwtEngineeringLayout(
     text("Post Monsoon", xA, yRowMid1, xASplit, yRowMid2, c=postColor)
     text("Pre Monsoon", xA, yRowMid2, xASplit, bottom, c=preColor)
 
-    // Lines in Legend
     g.color = postColor
     val postY = (yRowMid1 + yRowMid2)/2
     g.drawLine((xASplit+5).toInt(), postY.toInt(), (xB-5).toInt(), postY.toInt())
@@ -338,7 +311,6 @@ fun drawAwtEngineeringLayout(
     val preY = (yRowMid2 + bottom)/2
     g.drawLine((xASplit+5).toInt(), preY.toInt(), (xB-5).toInt(), preY.toInt())
 
-    // Multiline Text B1 & C1 (Simplified)
     text(b1Text.replace("\n", " "), xB, yFooterTop, xC, bottom)
     text("Civil Eng Dept, IIT Roorkee", xC, yFooterTop, xD, bottom)
 }
@@ -362,20 +334,28 @@ fun drawAwtElement(g: java.awt.Graphics2D, el: ReportElement, pxPerMm: Double) {
         g.translate(x.toDouble(), y.toDouble())
 
         // Calculate internal graph scale mapping
-        // We render using MM logic, just like Compose
         val mmToPx = pxPerMm
         val sortedData = el.graphData.sortedBy { if(el.graphType=="L-Section") it.chainage else it.distance }
+            .distinctBy { if(el.graphType=="L-Section") it.chainage else it.distance }
+
         val xVals = if(el.graphType=="L-Section") sortedData.map{it.chainage} else sortedData.map{it.distance}
         val minX = xVals.minOrNull() ?: 0.0
+        val maxX = xVals.maxOrNull() ?: 10.0
+
         val allY = (if(el.graphShowPre) sortedData.map{it.preMonsoon} else emptyList()) + (if(el.graphShowPost) sortedData.map{it.postMonsoon} else emptyList())
-        val maxY = if(allY.isNotEmpty()) allY.maxOrNull()!! else 10.0
-        val minY = if(allY.isNotEmpty()) floor(allY.minOrNull()!!) - 1.0 else 0.0
+        val maxY = if(allY.isNotEmpty()) ceil(allY.maxOrNull()!!) else 10.0
+        val minY = if(allY.isNotEmpty()) floor(allY.minOrNull()!!) else 0.0
 
         val mmPerMeterX = 1000.0 / max(el.graphHScale, 1.0)
         val mmPerMeterY = 1000.0 / max(el.graphVScale, 1.0)
 
-        val padLeftMm = 45.0
-        val padTopMm = 15.0
+        // SYNC WITH NEW CAD UI MARGINS
+        val tableLeftWidthOffset = el.riverOffsets[-30]?.x ?: 0f
+        val tableRightWidthOffset = el.riverOffsets[-31]?.x ?: 0f
+
+        val padLeftMm = 25.0 + tableLeftWidthOffset
+        val padTopMm = 5.0
+        val rowHMm = 6.0
         val graphHMm = (maxY - minY) * mmPerMeterY
         val tableYStartMm = padTopMm + graphHMm + el.tableGap
 
@@ -383,6 +363,11 @@ fun drawAwtElement(g: java.awt.Graphics2D, el: ReportElement, pxPerMm: Double) {
         fun mY(v: Double) = ((tableYStartMm - (v - minY) * mmPerMeterY) * mmToPx).toInt()
 
         val yTableStartPx = (tableYStartMm * mmToPx).toInt()
+        val rowHPx = (rowHMm * mmToPx).toInt()
+        val padLeftPx = (padLeftMm * mmToPx).toInt()
+        val totalDrawH = ((tableYStartMm + 3 * rowHMm + 5.0) * mmToPx).toInt()
+
+        val visualStrokeScale = 1.0f // Maintain 1.0f for High-Res PDF
 
         // 1. Grid
         if (el.graphShowGrid) {
@@ -390,14 +375,76 @@ fun drawAwtElement(g: java.awt.Graphics2D, el: ReportElement, pxPerMm: Double) {
             g.stroke = BasicStroke(1f)
             sortedData.forEach { p ->
                 val gx = mX(if(el.graphType=="L-Section") p.chainage else p.distance)
-                if(gx > (padLeftMm*mmToPx)) g.drawLine(gx, 0, gx, h)
+                if(gx > padLeftPx) g.drawLine(gx, 0, gx, totalDrawH)
             }
         }
 
-        // 2. Series
-        fun drawSeries(getter: (RiverPoint)->Double, c: Color, width: Float) {
+        val dropColor = Color(Color.LIGHT_GRAY.red, Color.LIGHT_GRAY.green, Color.LIGHT_GRAY.blue, 153)
+        val count = sortedData.size
+
+        sortedData.forEachIndexed { index, p ->
+            val ix = mX(if(el.graphType=="L-Section") p.chainage else p.distance)
+            val isBank = el.graphType == "X-Section" && count > 1 && (index == 1 || index == count - 2)
+            val lineColor = if (isBank) Color.BLUE else dropColor
+
+            if (ix >= padLeftPx - 1) {
+                // Base Drop Lines
+                if (el.graphShowPre) {
+                    g.color = dropColor
+                    g.stroke = BasicStroke(1f)
+                    g.drawLine(ix, mY(p.preMonsoon), ix, yTableStartPx)
+                }
+                if (el.graphShowPost) {
+                    g.color = dropColor
+                    g.stroke = BasicStroke(1f)
+                    g.drawLine(ix, mY(p.postMonsoon), ix, yTableStartPx)
+                }
+
+                // Active Offset Lines
+                if(!el.deletedBlueLineIndices.contains(index)) {
+                    val lineOffset = el.blueLineOffsets[index] ?: Offset.Zero
+                    val offXPx = (lineOffset.x * (mmToPx/3.78)).toInt()
+                    val offYPx = (lineOffset.y * (mmToPx/3.78)).toInt()
+                    g.color = lineColor
+                    g.stroke = BasicStroke(1f)
+                    if (el.graphShowPre) g.drawLine(ix + offXPx, mY(p.preMonsoon) + offYPx, ix + offXPx, yTableStartPx)
+                    if (el.graphShowPost) g.drawLine(ix + offXPx, mY(p.postMonsoon) + offYPx, ix + offXPx, yTableStartPx)
+                }
+
+                // River Texts
+                if (isBank && !el.deletedRiverIndices.contains(index)) {
+                    val baseTextY = mY(maxY) - (10.0 * mmToPx).toInt()
+                    val manualOffset = el.riverOffsets[index] ?: Offset.Zero
+                    val offXPx = (manualOffset.x * (mmToPx/3.78)).toInt()
+                    val offYPx = (manualOffset.y * (mmToPx/3.78)).toInt()
+
+                    val drawX = ix + offXPx
+                    val drawY = baseTextY + offYPx
+
+                    g.color = Color.BLACK
+                    g.font = Font("Arial", Font.BOLD, (el.riverTextSize * (mmToPx / 3.78)).toInt())
+
+                    val origTx2 = g.transform
+                    g.translate(drawX.toDouble(), drawY.toDouble())
+                    g.rotate(Math.toRadians(-90.0))
+                    val metrics = g.fontMetrics
+                    g.drawString("RIVER", -metrics.stringWidth("RIVER") / 2, metrics.ascent / 2)
+                    g.transform = origTx2
+                }
+            }
+        }
+
+        // 2. Series Lines
+        fun drawSeries(getter: (RiverPoint)->Double, c: Color, isDotted: Boolean, width: Float) {
             g.color = c
-            g.stroke = BasicStroke((width * (pxPerMm/3.8)).toFloat())
+            val sw = width * 2f * visualStrokeScale
+            if (isDotted) {
+                val dash = 10f * visualStrokeScale
+                g.stroke = BasicStroke(sw, BasicStroke.CAP_BUTT, BasicStroke.JOIN_MITER, 10f, floatArrayOf(dash, dash), 0f)
+            } else {
+                g.stroke = BasicStroke(sw)
+            }
+
             var px = -1; var py = -1
             sortedData.forEach { p ->
                 val ix = mX(if(el.graphType=="L-Section") p.chainage else p.distance)
@@ -409,16 +456,100 @@ fun drawAwtElement(g: java.awt.Graphics2D, el: ReportElement, pxPerMm: Double) {
         val preC = Color(el.graphPreColor.red, el.graphPreColor.green, el.graphPreColor.blue)
         val postC = Color(el.graphPostColor.red, el.graphPostColor.green, el.graphPostColor.blue)
 
-        if(el.graphShowPre) drawSeries({it.preMonsoon}, preC, el.graphPreWidth)
-        if(el.graphShowPost) drawSeries({it.postMonsoon}, postC, el.graphPostWidth)
+        if(el.graphShowPre) drawSeries({it.preMonsoon}, preC, el.graphPreDotted, el.graphPreWidth)
+        if(el.graphShowPost) drawSeries({it.postMonsoon}, postC, el.graphPostDotted, el.graphPostWidth)
 
-        // 3. Borders
+
+        // 3. Axis Wipe & Lines
+        val yAxisTop = mY(maxY)
+        g.color = Color.WHITE
+        g.fillRect(0, yAxisTop, padLeftPx, yTableStartPx - yAxisTop)
+
         g.color = Color.BLACK
-        g.stroke = BasicStroke(2f)
-        g.drawRect(0, 0, w, h)
+        g.stroke = BasicStroke(2f * visualStrokeScale)
+        g.drawLine(padLeftPx, yAxisTop, padLeftPx, yTableStartPx)
 
-        // 4. Axis
-        g.drawLine((padLeftMm*mmToPx).toInt(), 0, (padLeftMm*mmToPx).toInt(), h)
+        g.font = Font("Arial", Font.PLAIN, (el.axisLabelSize * (mmToPx / 3.78)).toInt())
+        val metrics = g.fontMetrics
+        for(i in 1..((maxY-minY).toInt())) {
+            val yVal = minY + i
+            val yPos = mY(yVal)
+            if (yPos in 0..yTableStartPx) {
+                g.stroke = BasicStroke(1f * visualStrokeScale)
+                g.drawLine(padLeftPx - (5 * (mmToPx/3.78)).toInt(), yPos, padLeftPx, yPos)
+                val txt = String.format("%.1f", yVal)
+                g.drawString(txt, padLeftPx - (8 * (mmToPx/3.78)).toInt() - metrics.stringWidth(txt), yPos + metrics.ascent / 2)
+            }
+        }
+
+        val datumY = mY(minY)
+        if (datumY > 0 && datumY < totalDrawH) {
+            val txt = "DATUM=${minY}"
+            g.font = Font("Arial", Font.PLAIN, (el.datumSize * (mmToPx / 3.78)).toInt())
+            val datMetrics = g.fontMetrics
+            g.drawString(txt, padLeftPx - (8 * (mmToPx/3.78)).toInt() - datMetrics.stringWidth(txt), datumY - (25 * (mmToPx/3.78)).toInt())
+        }
+
+        // 4. Table Borders
+        val xEnd = mX(maxX) + (5.0 * mmToPx).toInt() + (tableRightWidthOffset * mmToPx).toInt()
+        g.stroke = BasicStroke(2f * visualStrokeScale)
+        g.drawLine(0, yTableStartPx, xEnd, yTableStartPx)
+        for(i in 1..3) g.drawLine(0, yTableStartPx + i * rowHPx, xEnd, yTableStartPx + i * rowHPx)
+
+        g.drawLine(0, yTableStartPx, 0, yTableStartPx + 3 * rowHPx)
+        g.drawLine(padLeftPx, yTableStartPx, padLeftPx, yTableStartPx + 3 * rowHPx)
+        g.drawLine(xEnd, yTableStartPx, xEnd, yTableStartPx + 3 * rowHPx)
+
+
+        // 5. Table Content
+        g.font = Font("Arial", Font.PLAIN, (el.tableTextSize * (mmToPx / 3.78)).toInt())
+        val tableMetrics = g.fontMetrics
+        sortedData.forEachIndexed { index, p ->
+            val ix = mX(if(el.graphType=="L-Section") p.chainage else p.distance)
+            val vals = listOf(String.format("%.3f", p.postMonsoon), String.format("%.3f", p.preMonsoon), String.format("%.1f", if(el.graphType=="L-Section") p.chainage else p.distance))
+            val colors = listOf(postC, preC, Color.BLACK)
+
+            vals.forEachIndexed { i, txt ->
+                val cellCenterY = yTableStartPx + i * rowHPx + rowHPx/2
+                val visualX = if (index == 0) ix + (8 * (mmToPx/3.78)).toInt() else ix
+                g.color = colors[i]
+
+                val origTx3 = g.transform
+                g.translate(visualX.toDouble(), cellCenterY.toDouble())
+                g.rotate(Math.toRadians(-90.0))
+                g.drawString(txt, -tableMetrics.stringWidth(txt)/2, tableMetrics.ascent/2 - 2)
+                g.transform = origTx3
+            }
+        }
+
+        // 6. Row Headers
+        val labels = if(el.graphType == "L-Section") listOf("POST MONSOON RL", "PRE MONSOON RL", "Chainage in mt.") else listOf("POST RL", "PRE RL", "OFFSET")
+        g.font = Font("Arial", Font.BOLD, (el.tableTextSize * (mmToPx / 3.78)).toInt())
+        val headerMetrics = g.fontMetrics
+        labels.forEachIndexed { i, l ->
+            val cy = yTableStartPx + i * rowHPx + rowHPx/2
+            val cx = padLeftPx / 2
+            g.color = Color.BLACK
+            g.drawString(l, cx - headerMetrics.stringWidth(l)/2, cy + headerMetrics.ascent/2 - 2)
+        }
+
+        // 7. Chainage Label
+        if (el.graphType == "X-Section" && sortedData.isNotEmpty() && !el.isChLabelDeleted) {
+            val chainageVal = sortedData.first().chainage
+            val chLabel = "CH:-${String.format("%.1f", chainageVal)}"
+            val footerY = yTableStartPx + 3 * rowHPx + (10 * (mmToPx/3.78)).toInt()
+            val tableCenter = xEnd / 2
+            g.font = Font("SansSerif", Font.PLAIN, (el.chainageTextSize * (mmToPx / 3.78)).toInt())
+            val chMetrics = g.fontMetrics
+
+            val offX = (el.chLabelOffset.x * (mmToPx/3.78)).toInt()
+            val offY = (el.chLabelOffset.y * (mmToPx/3.78)).toInt()
+
+            val drawX = tableCenter - chMetrics.stringWidth(chLabel)/2 + offX
+            val drawY = footerY + offY + chMetrics.ascent
+            g.color = Color.BLACK
+            g.drawString(chLabel, drawX, drawY)
+        }
 
         g.transform = graphTx
         g.clip = savedClip

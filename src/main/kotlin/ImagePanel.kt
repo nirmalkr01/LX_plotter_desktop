@@ -1,4 +1,3 @@
-// FILE: D:\LX_plotter_desktop\src\main\kotlin\ImagePanel.kt
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -43,6 +42,7 @@ import kotlinx.coroutines.launch
 import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.ceil
 
 // Sealed class to identify what is selected
 sealed class InteractiveItem {
@@ -104,9 +104,9 @@ fun ImagePanel(
     var currentStartCh by remember(startCh) { mutableStateOf(startCh) }
     var currentEndCh by remember(endCh) { mutableStateOf(endCh) }
 
-    // --- TABLE RESIZE STATE (Local) ---
-    var tableRightWidthOffset by remember { mutableStateOf(0f) }
-    var tableLeftWidthOffset by remember { mutableStateOf(0f) }
+    // Use riverOffsets to store table resize offsets securely
+    val tableLeftWidthOffset = riverOffsets[-30]?.x ?: 0f
+    val tableRightWidthOffset = riverOffsets[-31]?.x ?: 0f
 
     // --- AUTO SPLIT STATE ---
     var generatedSplits by remember { mutableStateOf<List<LSectionSplit>>(emptyList()) }
@@ -164,9 +164,11 @@ fun ImagePanel(
         selectedItem = null
         generatedSplits = emptyList()
         activeSplitIndex = -1
-        tableRightWidthOffset = 0f
-        tableLeftWidthOffset = 0f
         autoZoomPerformed = false // Reset flag to trigger auto-zoom calculation
+
+        // Reset table offsets stored in map when view changes
+        riverOffsets.remove(-30)
+        riverOffsets.remove(-31)
 
         // Reset to default limits
         if(selectedGraphType == "L-Section" && riverData.isNotEmpty()) {
@@ -469,8 +471,10 @@ fun ImagePanel(
                     val hScale = if (selectedGraphType == "L-Section") lHScale else xHScale
                     val vScale = if (selectedGraphType == "L-Section") lVScale else xVScale
 
-                    val graphDimsMm = remember(viewData, hScale, vScale) {
-                        calculateGraphDimensionsMM(viewData, selectedGraphType, hScale, vScale)
+                    // Calculate dimension using correct values including table Gap and chainage MM offset
+                    val chMm = chLabelOffset.y / (3.78f * density.density)
+                    val graphDimsMm = remember(viewData, hScale, vScale, tableLeftWidthOffset, tableRightWidthOffset, tableGap, chMm) {
+                        calculateGraphDimensionsMM(viewData, selectedGraphType, hScale, vScale, tableLeftWidthOffset, tableRightWidthOffset, tableGap, chMm)
                     }
 
                     // AUTO ZOOM LOGIC
@@ -530,10 +534,10 @@ fun ImagePanel(
                                 .height(finalHeightDp),
                             contentAlignment = Alignment.Center
                         ) {
+                            // Transparent background applied here for Preview
                             Box(
                                 modifier = Modifier
                                     .size(contentWidthDp, contentHeightDp)
-                                    .background(Color.White)
                             ) {
                                 GraphPageCanvas(
                                     modifier = Modifier.fillMaxSize(), data = viewData, type = selectedGraphType,
@@ -562,35 +566,37 @@ fun ImagePanel(
                                     deletedBlueLineIndices = deletedBlueLines,
                                     isChLabelDeleted = isChLabelDeleted,
 
-                                    // Pass table offsets
-                                    tableRightWidthOffset = tableRightWidthOffset,
-                                    tableLeftWidthOffset = tableLeftWidthOffset,
-
                                     selectedItem = selectedItem,
                                     onSelectItem = { },
                                     onDragItem = { item, dragAmount ->
-                                        // Trigger Undo on START, handled by onInteractionStart
-                                        // Here we just apply the delta
+                                        // Un-zoom the drag amount so it's stored in true spatial scaling
+                                        val baseDragX = dragAmount.x / imageZoom
+                                        val baseDragY = dragAmount.y / imageZoom
+                                        val baseDrag = Offset(baseDragX, baseDragY)
+
                                         when(item) {
-                                            is InteractiveItem.RiverText -> riverOffsets[item.index] = (riverOffsets[item.index] ?: Offset.Zero) + dragAmount
-                                            is InteractiveItem.BlueLine -> blueLineOffsets[item.index] = (blueLineOffsets[item.index] ?: Offset.Zero) + dragAmount
-                                            is InteractiveItem.ChainageLabel -> onChLabelOffsetChange(chLabelOffset + dragAmount)
+                                            is InteractiveItem.RiverText -> riverOffsets[item.index] = (riverOffsets[item.index] ?: Offset.Zero) + baseDrag
+                                            is InteractiveItem.BlueLine -> blueLineOffsets[item.index] = (blueLineOffsets[item.index] ?: Offset.Zero) + baseDrag
+                                            is InteractiveItem.ChainageLabel -> onChLabelOffsetChange(chLabelOffset + baseDrag)
 
-                                            is InteractiveItem.LSecPreArrow -> riverOffsets[-10] = (riverOffsets[-10] ?: Offset.Zero) + dragAmount
-                                            is InteractiveItem.LSecPreText -> riverOffsets[-11] = (riverOffsets[-11] ?: Offset.Zero) + dragAmount
-                                            is InteractiveItem.LSecPostArrow -> riverOffsets[-20] = (riverOffsets[-20] ?: Offset.Zero) + dragAmount
-                                            is InteractiveItem.LSecPostText -> riverOffsets[-21] = (riverOffsets[-21] ?: Offset.Zero) + dragAmount
+                                            is InteractiveItem.LSecPreArrow -> riverOffsets[-10] = (riverOffsets[-10] ?: Offset.Zero) + baseDrag
+                                            is InteractiveItem.LSecPreText -> riverOffsets[-11] = (riverOffsets[-11] ?: Offset.Zero) + baseDrag
+                                            is InteractiveItem.LSecPostArrow -> riverOffsets[-20] = (riverOffsets[-20] ?: Offset.Zero) + baseDrag
+                                            is InteractiveItem.LSecPostText -> riverOffsets[-21] = (riverOffsets[-21] ?: Offset.Zero) + baseDrag
 
-                                            is InteractiveItem.TableRightBoundary -> {
-                                                val mmDelta = dragAmount.x / scaledPxPerMm
-                                                tableRightWidthOffset += mmDelta
-                                            }
+                                            // Store table edits straight into riverOffsets so they get passed natively into the element
                                             is InteractiveItem.TableLeftBoundary -> {
                                                 val mmDelta = dragAmount.x / scaledPxPerMm
-                                                // Prevent resizing too small (min 10mm width for header)
-                                                if (tableLeftWidthOffset + mmDelta > -35f) {
-                                                    tableLeftWidthOffset += mmDelta
+                                                val current = riverOffsets[-30]?.x ?: 0f
+                                                // Prevent resizing too small
+                                                if (current + mmDelta > -35f) {
+                                                    riverOffsets[-30] = Offset(current + mmDelta, 0f)
                                                 }
+                                            }
+                                            is InteractiveItem.TableRightBoundary -> {
+                                                val mmDelta = dragAmount.x / scaledPxPerMm
+                                                val current = riverOffsets[-31]?.x ?: 0f
+                                                riverOffsets[-31] = Offset(current + mmDelta, 0f)
                                             }
                                         }
                                     },
@@ -622,7 +628,7 @@ fun ImagePanel(
                                 onResetAllInteractive()
                                 selectedItem = null; tableGap = 0f; datumSize = 14f; tableTextSize = 14f
                                 riverTextSize = 14f; chainageTextSize = 18f; lSecItemSize = 20f
-                                tableRightWidthOffset = 0f; tableLeftWidthOffset = 0f // Reset table size
+                                riverOffsets.remove(-30); riverOffsets.remove(-31) // Reset table size keys
                                 if(selectedGraphType == "L-Section") {
                                     currentStartCh = startCh; currentEndCh = endCh
                                     generatedSplits = emptyList(); activeSplitIndex = -1
