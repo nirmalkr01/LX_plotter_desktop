@@ -25,6 +25,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
@@ -39,7 +41,9 @@ import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
+import kotlin.math.pow
 import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 data class ReportConfig(
     val marginTop: Float = 10f, // MM
@@ -404,7 +408,8 @@ fun GraphPageCanvas(
             }
         }
 
-        val dropColor = Color.LightGray.copy(alpha=0.6f)
+        // PRINTER FIX: Changed from transparent LightGray to solid Gray
+        val dropColor = Color.Gray
         val count = sortedData.size
         sortedData.forEachIndexed { index, p ->
             val x = mX(if(type=="L-Section") p.chainage else p.distance)
@@ -414,14 +419,13 @@ fun GraphPageCanvas(
             val lineColor = if(isLineSelected) Color.Red else baseLineColor
 
             if (x >= (padLeftMm * mmToPx) - 1f) {
-                // Base Lines
-                if (showPre) drawLine(dropColor, Offset(x, mY(p.preMonsoon)), Offset(x, (tableYStartMm * mmToPx).toFloat()), strokeWidth = 1f * visualStrokeScale)
-                if (showPost) drawLine(dropColor, Offset(x, mY(p.postMonsoon)), Offset(x, (tableYStartMm * mmToPx).toFloat()), strokeWidth = 1f * visualStrokeScale)
+                // Base Lines (PRINTER FIX: Thicker 1.5f stroke)
+                if (showPre) drawLine(dropColor, Offset(x, mY(p.preMonsoon)), Offset(x, (tableYStartMm * mmToPx).toFloat()), strokeWidth = 1.5f * visualStrokeScale)
+                if (showPost) drawLine(dropColor, Offset(x, mY(p.postMonsoon)), Offset(x, (tableYStartMm * mmToPx).toFloat()), strokeWidth = 1.5f * visualStrokeScale)
 
                 // Active Lines (Blue/Red)
                 if(!deletedBlueLineIndices.contains(index)) {
                     val lineOffset = blueLineOffsets[index] ?: Offset.Zero
-                    // USE mmToPx TO CONVERT STORED MILLIMETERS TO EXACT PHYSICAL PIXELS
                     val scaledOffset = Offset(lineOffset.x * mmToPx, lineOffset.y * mmToPx)
 
                     val lineX = x + scaledOffset.x
@@ -432,7 +436,6 @@ fun GraphPageCanvas(
                 if (isBank && !deletedRiverIndices.contains(index)) {
                     val baseTextY = mY(maxY) - (10f * visualStrokeScale)
                     val manualOffset = riverOffsets[index] ?: Offset.Zero
-                    // USE mmToPx TO CONVERT STORED MILLIMETERS TO EXACT PHYSICAL PIXELS
                     val scaledOffset = Offset(manualOffset.x * mmToPx, manualOffset.y * mmToPx)
 
                     val drawX = x + scaledOffset.x
@@ -441,7 +444,6 @@ fun GraphPageCanvas(
                     val textColor = if(isTextSelected) Color.Red else Color.Black
                     val riverLayout = textMeasurer.measure("RIVER", style = TextStyle(fontSize = scaledFontSize(riverTextSize), color = textColor, fontWeight = FontWeight.Bold))
 
-                    // FIXED PIVOT GEOMETRY: Subtract height / 2 so text doesn't swing out when rotating 90 degrees
                     rotate(-90f, pivot = Offset(drawX, drawY)) {
                         drawText(riverLayout, topLeft = Offset(drawX - riverLayout.size.width / 2, drawY - riverLayout.size.height / 2))
                     }
@@ -542,20 +544,21 @@ fun GraphPageCanvas(
 
         drawLine(Color.Black, Offset((padLeftMm * mmToPx).toFloat(), yAxisTop), Offset((padLeftMm * mmToPx).toFloat(), (tableYStartMm * mmToPx).toFloat()), strokeWidth = 2f * visualStrokeScale)
 
+        // PRINTER FIX: Applied Medium weight and SansSerif
         for(i in 1..((maxY-minY).toInt())) {
             val yVal = minY + i
             val yPos = mY(yVal)
             if (yPos >= 0 && yPos <= (tableYStartMm * mmToPx).toFloat()) {
                 drawLine(Color.Black, Offset((padLeftMm * mmToPx).toFloat() - (5f * visualStrokeScale), yPos), Offset((padLeftMm * mmToPx).toFloat(), yPos), strokeWidth = 1f * visualStrokeScale)
                 val txt = String.format("%.1f", yVal)
-                val layout = textMeasurer.measure(txt, style = TextStyle(fontSize = scaledFontSize(axisLabelSize), color = Color.Black))
+                val layout = textMeasurer.measure(txt, style = TextStyle(fontSize = scaledFontSize(axisLabelSize), color = Color.Black, fontWeight = FontWeight.Medium, fontFamily = FontFamily.SansSerif))
                 drawText(layout, topLeft = Offset((padLeftMm * mmToPx).toFloat() - (8f * visualStrokeScale) - layout.size.width, yPos - layout.size.height / 2))
             }
         }
         val datumY = mY(minY)
         if (datumY > 0 && datumY < totalDrawH) {
             val txt = "DATUM=${minY}"
-            val layout = textMeasurer.measure(txt, style = TextStyle(fontSize = scaledFontSize(datumSize)))
+            val layout = textMeasurer.measure(txt, style = TextStyle(fontSize = scaledFontSize(datumSize), fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif))
             drawText(layout, topLeft = Offset((padLeftMm * mmToPx).toFloat() - (8f * visualStrokeScale) - layout.size.width, datumY - (25f * zoomFactor)))
         }
 
@@ -577,25 +580,26 @@ fun GraphPageCanvas(
             drawCircle(Color.Blue, radius = 6f * visualStrokeScale, center = Offset(leftX, yTableStart + 1.5f * rowH))
         }
 
-        // Table Content
+        // Table Content (PRINTER FIX: Applied SemiBold weight and SansSerif)
         sortedData.forEachIndexed { index, p ->
             val x = mX(if(type=="L-Section") p.chainage else p.distance)
             val vals = listOf(String.format("%.3f", p.postMonsoon), String.format("%.3f", p.preMonsoon), String.format("%.1f", if(type=="L-Section") p.chainage else p.distance))
             val colors = listOf(Color(postColor.red, postColor.green, postColor.blue), Color(preColor.red, preColor.green, preColor.blue), Color.Black)
             vals.forEachIndexed { i, txt ->
                 val cellCenterY = yTableStart + i * rowH + rowH/2
-                val layoutResult = textMeasurer.measure(txt, style = TextStyle(fontSize = scaledFontSize(tableTextSize), color = colors[i]))
+                val layoutResult = textMeasurer.measure(txt, style = TextStyle(fontSize = scaledFontSize(tableTextSize), color = colors[i], fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.SansSerif))
                 val visualX = if (index == 0) x + 8f * visualStrokeScale else x
                 rotate(-90f, pivot = Offset(visualX, cellCenterY)) { drawText(layoutResult, topLeft = Offset(visualX - layoutResult.size.width/2, cellCenterY - layoutResult.size.height/2)) }
             }
         }
 
+        // Row Headers (PRINTER FIX: Applied SansSerif)
         val labels = if(type == "L-Section") listOf("POST MONSOON RL", "PRE MONSOON RL", "Chainage in mt.") else listOf("POST RL", "PRE RL", "OFFSET")
         labels.forEachIndexed { i, l ->
             val y = yTableStart + i * rowH
             val cx = (padLeftMm * mmToPx).toFloat() / 2
             val cy = y + rowH/2
-            val textLayout = textMeasurer.measure(l, style = TextStyle(fontSize = scaledFontSize(tableTextSize), fontWeight = FontWeight.Bold, textAlign = TextAlign.Center))
+            val textLayout = textMeasurer.measure(l, style = TextStyle(fontSize = scaledFontSize(tableTextSize), fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, fontFamily = FontFamily.SansSerif))
             drawText(textLayout, topLeft = Offset(cx - textLayout.size.width/2, cy - textLayout.size.height/2))
         }
 
@@ -607,7 +611,6 @@ fun GraphPageCanvas(
             val isChSelected = selectedItem is InteractiveItem.ChainageLabel
             val chColor = if(isChSelected) Color.Red else Color.Black
             val chLayout = textMeasurer.measure(chLabel, style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = scaledFontSize(chainageTextSize), color = chColor))
-            // USE mmToPx for Chainage Label offset parsing
             val drawX = tableCenter - chLayout.size.width/2 + (chLabelOffset.x * mmToPx)
             val drawY = footerY + (chLabelOffset.y * mmToPx)
             drawText(chLayout, topLeft = Offset(drawX, drawY))
