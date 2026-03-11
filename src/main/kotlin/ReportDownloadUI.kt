@@ -442,7 +442,9 @@ fun GraphPageCanvas(
                     val drawY = baseTextY + scaledOffset.y
                     val isTextSelected = selectedItem is InteractiveItem.RiverText && (selectedItem as InteractiveItem.RiverText).index == index
                     val textColor = if(isTextSelected) Color.Red else Color.Black
-                    val riverLayout = textMeasurer.measure("RIVER", style = TextStyle(fontSize = scaledFontSize(riverTextSize), color = textColor, fontWeight = FontWeight.Bold))
+
+                    // PRINTER FIX: Added SansSerif
+                    val riverLayout = textMeasurer.measure("RIVER", style = TextStyle(fontSize = scaledFontSize(riverTextSize), color = textColor, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif))
 
                     rotate(-90f, pivot = Offset(drawX, drawY)) {
                         drawText(riverLayout, topLeft = Offset(drawX - riverLayout.size.width / 2, drawY - riverLayout.size.height / 2))
@@ -503,7 +505,9 @@ fun GraphPageCanvas(
                     val textY = defY - size - (10f * visualStrokeScale) + scaledOffset.y
                     val isSelected = selectedItem is InteractiveItem.LSecPreText
                     val textColor = if(isSelected) Color.Magenta else cPre
-                    val txtLayout = textMeasurer.measure("L-section of Pre Monsoon", style = TextStyle(fontFamily = FontFamily.Serif, fontSize = scaledFontSize(riverTextSize), color = textColor, fontWeight = FontWeight.Bold))
+
+                    // PRINTER FIX: Added SansSerif
+                    val txtLayout = textMeasurer.measure("L-section of Pre Monsoon", style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = scaledFontSize(riverTextSize), color = textColor, fontWeight = FontWeight.Bold))
                     drawText(txtLayout, topLeft = Offset(textX, textY))
                 }
             }
@@ -530,7 +534,9 @@ fun GraphPageCanvas(
                     val textY = defY - size - (10f * visualStrokeScale) + scaledOffset.y
                     val isSelected = selectedItem is InteractiveItem.LSecPostText
                     val textColor = if(isSelected) Color.Magenta else cPost
-                    val txtLayout = textMeasurer.measure("L-section of Post Monsoon", style = TextStyle(fontFamily = FontFamily.Serif, fontSize = scaledFontSize(riverTextSize), color = textColor, fontWeight = FontWeight.Bold))
+
+                    // PRINTER FIX: Added SansSerif
+                    val txtLayout = textMeasurer.measure("L-section of Post Monsoon", style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = scaledFontSize(riverTextSize), color = textColor, fontWeight = FontWeight.Bold))
                     drawText(txtLayout, topLeft = Offset(textX, textY))
                 }
             }
@@ -558,6 +564,7 @@ fun GraphPageCanvas(
         val datumY = mY(minY)
         if (datumY > 0 && datumY < totalDrawH) {
             val txt = "DATUM=${minY}"
+            // PRINTER FIX: Applied Bold weight and SansSerif
             val layout = textMeasurer.measure(txt, style = TextStyle(fontSize = scaledFontSize(datumSize), fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif))
             drawText(layout, topLeft = Offset((padLeftMm * mmToPx).toFloat() - (8f * visualStrokeScale) - layout.size.width, datumY - (25f * zoomFactor)))
         }
@@ -593,7 +600,7 @@ fun GraphPageCanvas(
             }
         }
 
-        // Row Headers (PRINTER FIX: Applied SansSerif)
+        // Row Headers (PRINTER FIX: Applied Bold and SansSerif)
         val labels = if(type == "L-Section") listOf("POST MONSOON RL", "PRE MONSOON RL", "Chainage in mt.") else listOf("POST RL", "PRE RL", "OFFSET")
         labels.forEachIndexed { i, l ->
             val y = yTableStart + i * rowH
@@ -610,7 +617,9 @@ fun GraphPageCanvas(
             val tableCenter = xEnd / 2
             val isChSelected = selectedItem is InteractiveItem.ChainageLabel
             val chColor = if(isChSelected) Color.Red else Color.Black
-            val chLayout = textMeasurer.measure(chLabel, style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = scaledFontSize(chainageTextSize), color = chColor))
+
+            // PRINTER FIX: Applied Bold and SansSerif
+            val chLayout = textMeasurer.measure(chLabel, style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = scaledFontSize(chainageTextSize), color = chColor, fontWeight = FontWeight.Bold))
             val drawX = tableCenter - chLayout.size.width/2 + (chLabelOffset.x * mmToPx)
             val drawY = footerY + (chLabelOffset.y * mmToPx)
             drawText(chLayout, topLeft = Offset(drawX, drawY))
