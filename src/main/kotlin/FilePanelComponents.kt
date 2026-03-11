@@ -451,7 +451,10 @@ fun FilePanel(
             onPartitionModeToggle = onPartitionModeToggle,
             onExportPdf = {
                 if(reportItems.isNotEmpty()) {
-                    pickSaveFile("Report.pdf")?.let { file ->
+                    val defaultName = "Report_${System.currentTimeMillis()}.pdf"
+                    pickSaveFile(defaultName)?.let { pickedFile ->
+                        // Automatically append .pdf if user clears it
+                        val file = if (pickedFile.name.lowercase().endsWith(".pdf")) pickedFile else File(pickedFile.absolutePath + ".pdf")
                         scope.launch {
                             onStatusChange("Generating PDF...")
                             withContext(Dispatchers.IO) {
