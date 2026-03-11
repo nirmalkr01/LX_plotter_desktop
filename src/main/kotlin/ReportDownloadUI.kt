@@ -25,8 +25,6 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
-import androidx.compose.ui.graphics.drawscope.scale
-import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
@@ -41,9 +39,7 @@ import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.max
-import kotlin.math.pow
 import kotlin.math.roundToInt
-import kotlin.math.sqrt
 
 data class ReportConfig(
     val marginTop: Float = 10f, // MM
@@ -425,8 +421,8 @@ fun GraphPageCanvas(
                 // Active Lines (Blue/Red)
                 if(!deletedBlueLineIndices.contains(index)) {
                     val lineOffset = blueLineOffsets[index] ?: Offset.Zero
-                    // Apply visual scale to offsets to ensure they stick to the point visually
-                    val scaledOffset = Offset(lineOffset.x * zoomFactor, lineOffset.y * zoomFactor)
+                    // USE mmToPx TO CONVERT STORED MILLIMETERS TO EXACT PHYSICAL PIXELS
+                    val scaledOffset = Offset(lineOffset.x * mmToPx, lineOffset.y * mmToPx)
 
                     val lineX = x + scaledOffset.x
                     if (showPre) drawLine(lineColor, Offset(lineX, mY(p.preMonsoon) + scaledOffset.y), Offset(lineX, (tableYStartMm * mmToPx).toFloat()), strokeWidth = (if(isLineSelected) 3f else 1f) * visualStrokeScale)
@@ -436,14 +432,19 @@ fun GraphPageCanvas(
                 if (isBank && !deletedRiverIndices.contains(index)) {
                     val baseTextY = mY(maxY) - (10f * visualStrokeScale)
                     val manualOffset = riverOffsets[index] ?: Offset.Zero
-                    val scaledOffset = Offset(manualOffset.x * zoomFactor, manualOffset.y * zoomFactor)
+                    // USE mmToPx TO CONVERT STORED MILLIMETERS TO EXACT PHYSICAL PIXELS
+                    val scaledOffset = Offset(manualOffset.x * mmToPx, manualOffset.y * mmToPx)
 
                     val drawX = x + scaledOffset.x
                     val drawY = baseTextY + scaledOffset.y
                     val isTextSelected = selectedItem is InteractiveItem.RiverText && (selectedItem as InteractiveItem.RiverText).index == index
                     val textColor = if(isTextSelected) Color.Red else Color.Black
                     val riverLayout = textMeasurer.measure("RIVER", style = TextStyle(fontSize = scaledFontSize(riverTextSize), color = textColor, fontWeight = FontWeight.Bold))
-                    rotate(-90f, pivot = Offset(drawX, drawY)) { drawText(riverLayout, topLeft = Offset(drawX - riverLayout.size.width / 2, drawY)) }
+
+                    // FIXED PIVOT GEOMETRY: Subtract height / 2 so text doesn't swing out when rotating 90 degrees
+                    rotate(-90f, pivot = Offset(drawX, drawY)) {
+                        drawText(riverLayout, topLeft = Offset(drawX - riverLayout.size.width / 2, drawY - riverLayout.size.height / 2))
+                    }
                 }
             }
         }
@@ -458,8 +459,6 @@ fun GraphPageCanvas(
                 val y = mY(getter(p))
                 if(first){ path.moveTo(x,y); first=false } else path.lineTo(x,y)
 
-                // FIX: Only draw points if we are in RawView (Image Panel)
-                // and the user has enabled them. This prevents dots on the final report page.
                 if(isRawView && showPoints) drawCircle(color, radius = (width * 2f) * visualStrokeScale, center = Offset(x, y))
             }
             // Scale Dash Effect
@@ -467,9 +466,7 @@ fun GraphPageCanvas(
             val gapLen = 10f * visualStrokeScale
             val effect = if(isDotted) PathEffect.dashPathEffect(floatArrayOf(dashLen, gapLen), 0f) else null
 
-            // Visual Width = Base Width * Zoom
             val visualWidth = width * 2f * visualStrokeScale
-
             drawPath(path, color, style = Stroke(width = visualWidth, pathEffect = effect))
         }
         if(showPre) drawSeries({it.preMonsoon}, preColor, preDotted, preWidth, preShowPoints)
@@ -485,7 +482,7 @@ fun GraphPageCanvas(
                 val defY = mY(midPoint.preMonsoon)
                 if (!deletedRiverIndices.contains(-10)) {
                     val userOffset = riverOffsets[-10] ?: Offset.Zero
-                    val scaledOffset = Offset(userOffset.x * zoomFactor, userOffset.y * zoomFactor)
+                    val scaledOffset = Offset(userOffset.x * mmToPx, userOffset.y * mmToPx)
                     val tipX = defX + scaledOffset.x
                     val tipY = defY + scaledOffset.y
                     val size = (riverTextSize * 2.5f) * visualStrokeScale
@@ -498,7 +495,7 @@ fun GraphPageCanvas(
                 }
                 if (!deletedRiverIndices.contains(-11)) {
                     val userOffset = riverOffsets[-11] ?: Offset.Zero
-                    val scaledOffset = Offset(userOffset.x * zoomFactor, userOffset.y * zoomFactor)
+                    val scaledOffset = Offset(userOffset.x * mmToPx, userOffset.y * mmToPx)
                     val size = (riverTextSize * 2.5f) * visualStrokeScale
                     val textX = defX + size + (5f * visualStrokeScale) + scaledOffset.x
                     val textY = defY - size - (10f * visualStrokeScale) + scaledOffset.y
@@ -512,7 +509,7 @@ fun GraphPageCanvas(
                 val defY = mY(midPoint.postMonsoon)
                 if (!deletedRiverIndices.contains(-20)) {
                     val userOffset = riverOffsets[-20] ?: Offset.Zero
-                    val scaledOffset = Offset(userOffset.x * zoomFactor, userOffset.y * zoomFactor)
+                    val scaledOffset = Offset(userOffset.x * mmToPx, userOffset.y * mmToPx)
                     val tipX = defX + (50f * visualStrokeScale) + scaledOffset.x
                     val tipY = defY + scaledOffset.y
                     val size = (riverTextSize * 2.5f) * visualStrokeScale
@@ -525,7 +522,7 @@ fun GraphPageCanvas(
                 }
                 if (!deletedRiverIndices.contains(-21)) {
                     val userOffset = riverOffsets[-21] ?: Offset.Zero
-                    val scaledOffset = Offset(userOffset.x * zoomFactor, userOffset.y * zoomFactor)
+                    val scaledOffset = Offset(userOffset.x * mmToPx, userOffset.y * mmToPx)
                     val size = (riverTextSize * 2.5f) * visualStrokeScale
                     val textX = defX + (50f * visualStrokeScale) + size + (5f * visualStrokeScale) + scaledOffset.x
                     val textY = defY - size - (10f * visualStrokeScale) + scaledOffset.y
@@ -538,13 +535,11 @@ fun GraphPageCanvas(
         }
 
         // --- FIXED TABLE RENDERING ORDER ---
-        // 1. Wipe Axis Area
         val yAxisTop = mY(maxY)
         if (!isTransparentOverlay) {
             drawRect(Color.White, topLeft = Offset(0f, yAxisTop), size = Size((padLeftMm * mmToPx).toFloat(), (tableYStartMm * mmToPx).toFloat() - yAxisTop))
         }
 
-        // 2. Draw Axis Lines & Ticks (on top of wipe)
         drawLine(Color.Black, Offset((padLeftMm * mmToPx).toFloat(), yAxisTop), Offset((padLeftMm * mmToPx).toFloat(), (tableYStartMm * mmToPx).toFloat()), strokeWidth = 2f * visualStrokeScale)
 
         for(i in 1..((maxY-minY).toInt())) {
@@ -561,29 +556,22 @@ fun GraphPageCanvas(
         if (datumY > 0 && datumY < totalDrawH) {
             val txt = "DATUM=${minY}"
             val layout = textMeasurer.measure(txt, style = TextStyle(fontSize = scaledFontSize(datumSize)))
-            // Multiply the pixel offset by zoomFactor so it doesn't visually shift away when zooming
             drawText(layout, topLeft = Offset((padLeftMm * mmToPx).toFloat() - (8f * visualStrokeScale) - layout.size.width, datumY - (25f * zoomFactor)))
         }
 
         // 3. Draw Table Borders
-        val xEnd = mX(maxX) + (5.0 * mmToPx).toFloat() + (tableRightWidthOffset * mmToPx) // Extension pad
+        val xEnd = mX(maxX) + (5.0 * mmToPx).toFloat() + (tableRightWidthOffset * mmToPx)
         val yTableStart = (tableYStartMm * mmToPx).toFloat()
         val rowH = (rowHMm * mmToPx).toFloat()
 
         drawLine(Color.Black, Offset(0f, yTableStart), Offset(xEnd, yTableStart), strokeWidth = 2f * visualStrokeScale)
         for(i in 1..3) drawLine(Color.Black, Offset(0f, yTableStart + i * rowH), Offset(xEnd, yTableStart + i * rowH), strokeWidth = 2f * visualStrokeScale)
 
-        // Vertical lines
         drawLine(Color.Black, Offset(0f, yTableStart), Offset(0f, yTableStart + 3 * rowH), strokeWidth = 2f * visualStrokeScale)
         drawLine(Color.Black, Offset((padLeftMm * mmToPx).toFloat(), yTableStart), Offset((padLeftMm * mmToPx).toFloat(), yTableStart + 3 * rowH), strokeWidth = 2f * visualStrokeScale)
         drawLine(Color.Black, Offset(xEnd, yTableStart), Offset(xEnd, yTableStart + 3 * rowH), strokeWidth = 2f * visualStrokeScale)
 
-        // Draw Interactive Drag Handle for Table Right Edge
-        if (selectedItem is InteractiveItem.TableRightBoundary) {
-            drawCircle(Color.Blue, radius = 6f * visualStrokeScale, center = Offset(xEnd, yTableStart + 1.5f * rowH))
-        }
-
-        // Draw Interactive Drag Handle for Table Left Edge (Header Width)
+        if (selectedItem is InteractiveItem.TableRightBoundary) drawCircle(Color.Blue, radius = 6f * visualStrokeScale, center = Offset(xEnd, yTableStart + 1.5f * rowH))
         if (selectedItem is InteractiveItem.TableLeftBoundary) {
             val leftX = (padLeftMm * mmToPx).toFloat()
             drawCircle(Color.Blue, radius = 6f * visualStrokeScale, center = Offset(leftX, yTableStart + 1.5f * rowH))
@@ -602,7 +590,6 @@ fun GraphPageCanvas(
             }
         }
 
-        // Row Headers
         val labels = if(type == "L-Section") listOf("POST MONSOON RL", "PRE MONSOON RL", "Chainage in mt.") else listOf("POST RL", "PRE RL", "OFFSET")
         labels.forEachIndexed { i, l ->
             val y = yTableStart + i * rowH
@@ -620,8 +607,9 @@ fun GraphPageCanvas(
             val isChSelected = selectedItem is InteractiveItem.ChainageLabel
             val chColor = if(isChSelected) Color.Red else Color.Black
             val chLayout = textMeasurer.measure(chLabel, style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = scaledFontSize(chainageTextSize), color = chColor))
-            val drawX = tableCenter - chLayout.size.width/2 + (chLabelOffset.x * zoomFactor)
-            val drawY = footerY + (chLabelOffset.y * zoomFactor)
+            // USE mmToPx for Chainage Label offset parsing
+            val drawX = tableCenter - chLayout.size.width/2 + (chLabelOffset.x * mmToPx)
+            val drawY = footerY + (chLabelOffset.y * mmToPx)
             drawText(chLayout, topLeft = Offset(drawX, drawY))
         }
     }

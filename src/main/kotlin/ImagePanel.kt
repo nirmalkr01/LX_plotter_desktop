@@ -570,19 +570,20 @@ fun ImagePanel(
                                     onSelectItem = { },
                                     onDragItem = { item, dragAmount ->
                                         // Un-zoom the drag amount so it's stored in true spatial scaling
-                                        val baseDragX = dragAmount.x / imageZoom
-                                        val baseDragY = dragAmount.y / imageZoom
-                                        val baseDrag = Offset(baseDragX, baseDragY)
+                                        // NOW CORRECTLY DIVIDED BY pxPerMm SO IT STORES PERFECT MILLIMETERS!
+                                        val mmDragX = dragAmount.x / scaledPxPerMm
+                                        val mmDragY = dragAmount.y / scaledPxPerMm
+                                        val mmDrag = Offset(mmDragX, mmDragY)
 
                                         when(item) {
-                                            is InteractiveItem.RiverText -> riverOffsets[item.index] = (riverOffsets[item.index] ?: Offset.Zero) + baseDrag
-                                            is InteractiveItem.BlueLine -> blueLineOffsets[item.index] = (blueLineOffsets[item.index] ?: Offset.Zero) + baseDrag
-                                            is InteractiveItem.ChainageLabel -> onChLabelOffsetChange(chLabelOffset + baseDrag)
+                                            is InteractiveItem.RiverText -> riverOffsets[item.index] = (riverOffsets[item.index] ?: Offset.Zero) + mmDrag
+                                            is InteractiveItem.BlueLine -> blueLineOffsets[item.index] = (blueLineOffsets[item.index] ?: Offset.Zero) + mmDrag
+                                            is InteractiveItem.ChainageLabel -> onChLabelOffsetChange(chLabelOffset + mmDrag)
 
-                                            is InteractiveItem.LSecPreArrow -> riverOffsets[-10] = (riverOffsets[-10] ?: Offset.Zero) + baseDrag
-                                            is InteractiveItem.LSecPreText -> riverOffsets[-11] = (riverOffsets[-11] ?: Offset.Zero) + baseDrag
-                                            is InteractiveItem.LSecPostArrow -> riverOffsets[-20] = (riverOffsets[-20] ?: Offset.Zero) + baseDrag
-                                            is InteractiveItem.LSecPostText -> riverOffsets[-21] = (riverOffsets[-21] ?: Offset.Zero) + baseDrag
+                                            is InteractiveItem.LSecPreArrow -> riverOffsets[-10] = (riverOffsets[-10] ?: Offset.Zero) + mmDrag
+                                            is InteractiveItem.LSecPreText -> riverOffsets[-11] = (riverOffsets[-11] ?: Offset.Zero) + mmDrag
+                                            is InteractiveItem.LSecPostArrow -> riverOffsets[-20] = (riverOffsets[-20] ?: Offset.Zero) + mmDrag
+                                            is InteractiveItem.LSecPostText -> riverOffsets[-21] = (riverOffsets[-21] ?: Offset.Zero) + mmDrag
 
                                             // Store table edits straight into riverOffsets so they get passed natively into the element
                                             is InteractiveItem.TableLeftBoundary -> {
