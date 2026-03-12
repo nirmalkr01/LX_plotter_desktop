@@ -143,6 +143,7 @@ fun ReportDownloadScreen(
                                         // Extract table width offsets stored securely in riverOffsets
                                         val tLeft = newElement.riverOffsets[-30]?.x ?: 0f
                                         val tRight = newElement.riverOffsets[-31]?.x ?: 0f
+                                        val rowHeightMm = newElement.riverOffsets[-40]?.x ?: 10f
 
                                         val chMm = newElement.chLabelOffset.y / (3.78f * density.density)
 
@@ -155,7 +156,8 @@ fun ReportDownloadScreen(
                                             tLeft,
                                             tRight,
                                             newElement.tableGap,
-                                            chMm
+                                            chMm,
+                                            rowHeightMm
                                         )
 
                                         // 2. Fetch the partitions mapped by FilePanel
@@ -255,7 +257,8 @@ fun calculateGraphDimensionsMM(
     tableLeftWidthOffset: Float = 0f,
     tableRightWidthOffset: Float = 0f,
     tableGap: Float = 0f,
-    chLabelOffsetYMm: Float = 0f
+    chLabelOffsetYMm: Float = 0f,
+    tableRowHeightMm: Float = 10f
 ): GraphDimensions {
     if (data.isEmpty()) return GraphDimensions(100.0, 100.0)
 
@@ -277,7 +280,7 @@ fun calculateGraphDimensionsMM(
     val paddingLeftMm = 25.0 + tableLeftWidthOffset // Reduced from 45.0 to match CAD
     val rightPadMm = 5.0 + tableRightWidthOffset    // Reduced from 15.0
     val topPadMm = 5.0                              // Reduced from 15.0
-    val tableRowHMm = 6.0                           // Reduced from 10.0 (3 rows = 18mm total)
+    val tableRowHMm = tableRowHeightMm.toDouble()   // Dynamically resizable row height
     val baseFooterBufferMm = 5.0                    // Reduced from 15.0
     val extraFooterMm = max(0.0, chLabelOffsetYMm.toDouble())
     val footerBufferMm = baseFooterBufferMm + extraFooterMm
@@ -312,12 +315,12 @@ fun GraphPageCanvas(
     isRawView: Boolean = false,
     isTransparentOverlay: Boolean = false,
     pxPerMm: Float = 3.78f, // Default Screen Scale (approx 96 DPI)
-    datumSize: Float = 14f,
-    axisLabelSize: Float = 14f,
-    tableTextSize: Float = 14f,
+    datumSize: Float = 9f,
+    axisLabelSize: Float = 9f,
+    tableTextSize: Float = 9f,
     tableGap: Float = 0f,
-    riverTextSize: Float = 14f,
-    chainageTextSize: Float = 18f,
+    riverTextSize: Float = 9f,
+    chainageTextSize: Float = 12f,
     riverOffsets: Map<Int, Offset> = emptyMap(),
     blueLineOffsets: Map<Int, Offset> = emptyMap(),
     chLabelOffset: Offset = Offset.Zero,
@@ -371,6 +374,7 @@ fun GraphPageCanvas(
         // Retrieve width changes directly from riverOffsets native map
         val tableLeftWidthOffset = riverOffsets[-30]?.x ?: 0f
         val tableRightWidthOffset = riverOffsets[-31]?.x ?: 0f
+        val dynamicRowHMm = (riverOffsets[-40]?.x ?: 10f).toDouble()
 
         // --- 2. PREPARE DATA ---
         val sortedData = data.sortedBy { if(type=="L-Section") it.chainage else it.distance }
@@ -388,7 +392,7 @@ fun GraphPageCanvas(
         // Layout Constants (MM)
         val padLeftMm = 25.0 + tableLeftWidthOffset
         val padTopMm = 5.0
-        val rowHMm = 6.0
+        val rowHMm = dynamicRowHMm
         val graphHMm = (maxY - minY) * mmPerMeterY
         val tableYStartMm = padTopMm + graphHMm + tableGap
 
@@ -442,8 +446,6 @@ fun GraphPageCanvas(
                     val drawY = baseTextY + scaledOffset.y
                     val isTextSelected = selectedItem is InteractiveItem.RiverText && (selectedItem as InteractiveItem.RiverText).index == index
                     val textColor = if(isTextSelected) Color.Red else Color.Black
-
-                    // PRINTER FIX: Added SansSerif
                     val riverLayout = textMeasurer.measure("RIVER", style = TextStyle(fontSize = scaledFontSize(riverTextSize), color = textColor, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif))
 
                     rotate(-90f, pivot = Offset(drawX, drawY)) {
@@ -505,8 +507,6 @@ fun GraphPageCanvas(
                     val textY = defY - size - (10f * visualStrokeScale) + scaledOffset.y
                     val isSelected = selectedItem is InteractiveItem.LSecPreText
                     val textColor = if(isSelected) Color.Magenta else cPre
-
-                    // PRINTER FIX: Added SansSerif
                     val txtLayout = textMeasurer.measure("L-section of Pre Monsoon", style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = scaledFontSize(riverTextSize), color = textColor, fontWeight = FontWeight.Bold))
                     drawText(txtLayout, topLeft = Offset(textX, textY))
                 }
@@ -534,8 +534,6 @@ fun GraphPageCanvas(
                     val textY = defY - size - (10f * visualStrokeScale) + scaledOffset.y
                     val isSelected = selectedItem is InteractiveItem.LSecPostText
                     val textColor = if(isSelected) Color.Magenta else cPost
-
-                    // PRINTER FIX: Added SansSerif
                     val txtLayout = textMeasurer.measure("L-section of Post Monsoon", style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = scaledFontSize(riverTextSize), color = textColor, fontWeight = FontWeight.Bold))
                     drawText(txtLayout, topLeft = Offset(textX, textY))
                 }
@@ -558,15 +556,19 @@ fun GraphPageCanvas(
                 drawLine(Color.Black, Offset((padLeftMm * mmToPx).toFloat() - (5f * visualStrokeScale), yPos), Offset((padLeftMm * mmToPx).toFloat(), yPos), strokeWidth = 1f * visualStrokeScale)
                 val txt = String.format("%.1f", yVal)
                 val layout = textMeasurer.measure(txt, style = TextStyle(fontSize = scaledFontSize(axisLabelSize), color = Color.Black, fontWeight = FontWeight.Medium, fontFamily = FontFamily.SansSerif))
-                drawText(layout, topLeft = Offset((padLeftMm * mmToPx).toFloat() - (8f * visualStrokeScale) - layout.size.width, yPos - layout.size.height / 2))
+                val gapPx = 0.1f * mmToPx
+                drawText(layout, topLeft = Offset((padLeftMm * mmToPx).toFloat() - gapPx - layout.size.width, yPos - layout.size.height / 2))
             }
         }
         val datumY = mY(minY)
         if (datumY > 0 && datumY < totalDrawH) {
             val txt = "DATUM=${minY}"
-            // PRINTER FIX: Applied Bold weight and SansSerif
             val layout = textMeasurer.measure(txt, style = TextStyle(fontSize = scaledFontSize(datumSize), fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif))
-            drawText(layout, topLeft = Offset((padLeftMm * mmToPx).toFloat() - (8f * visualStrokeScale) - layout.size.width, datumY - (25f * zoomFactor)))
+            val gapX = 0.1f * mmToPx
+            val gapY = 0.1f * mmToPx
+            val yTableTop = (tableYStartMm * mmToPx).toFloat()
+            val datumDrawY = yTableTop - gapY - layout.size.height
+            drawText(layout, topLeft = Offset((padLeftMm * mmToPx).toFloat() - gapX - layout.size.width, datumDrawY))
         }
 
         // 3. Draw Table Borders
@@ -617,8 +619,6 @@ fun GraphPageCanvas(
             val tableCenter = xEnd / 2
             val isChSelected = selectedItem is InteractiveItem.ChainageLabel
             val chColor = if(isChSelected) Color.Red else Color.Black
-
-            // PRINTER FIX: Applied Bold and SansSerif
             val chLayout = textMeasurer.measure(chLabel, style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = scaledFontSize(chainageTextSize), color = chColor, fontWeight = FontWeight.Bold))
             val drawX = tableCenter - chLayout.size.width/2 + (chLabelOffset.x * mmToPx)
             val drawY = footerY + (chLabelOffset.y * mmToPx)

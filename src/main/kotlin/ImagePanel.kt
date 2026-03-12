@@ -141,15 +141,15 @@ fun ImagePanel(
     val rightBankIndex = if (sortedData.size > 1) sortedData.size - 2 else -1
 
     // --- DYNAMIC SIZING STATE ---
-    var datumSize by remember { mutableStateOf(14f) }
-    var axisSize by remember { mutableStateOf(14f) }
-    var tableTextSize by remember { mutableStateOf(14f) }
+    var datumSize by remember { mutableStateOf(9f) }
+    var axisSize by remember { mutableStateOf(9f) }
+    var tableTextSize by remember { mutableStateOf(9f) }
     var tableGap by remember { mutableStateOf(0f) }
-    var riverTextSize by remember { mutableStateOf(14f) }
-    var chainageTextSize by remember { mutableStateOf(18f) }
+    var riverTextSize by remember { mutableStateOf(9f) }
+    var chainageTextSize by remember { mutableStateOf(12f) }
 
-    // NEW: L-Section Specific Size (Arrow/Text) - Defaults to roughly "0.5" relative
-    var lSecItemSize by remember { mutableStateOf(20f) }
+    // NEW: L-Section Specific Size (Arrow/Text)
+    var lSecItemSize by remember { mutableStateOf(9f) }
 
     // --- ZOOM STATE ---
     var imageZoom by remember { mutableStateOf(1.0f) }
@@ -177,6 +177,8 @@ fun ImagePanel(
         // Reset table offsets stored in map when view changes
         riverOffsets.remove(-30)
         riverOffsets.remove(-31)
+        // Reset Row Height back to default
+        riverOffsets.remove(-40)
 
         // Reset to default limits
         if(selectedGraphType == "L-Section" && riverData.isNotEmpty()) {
@@ -264,6 +266,27 @@ fun ImagePanel(
                                     }
                                 }
                             }
+
+                            VerticalDivider(Modifier.padding(vertical = 8.dp))
+
+                            ImagePanelRibbonGroup("Table Box") {
+                                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        val currentRowHeight = riverOffsets[-40]?.x ?: 10f
+                                        val currentHeaderWidth = 25f + (riverOffsets[-30]?.x ?: 0f)
+
+                                        ImagePanelNumberInput("Row Ht:", currentRowHeight) {
+                                            onInteractionStart()
+                                            riverOffsets[-40] = Offset(it, 0f)
+                                        }
+                                        ImagePanelNumberInput("Hdr Wd:", currentHeaderWidth) {
+                                            onInteractionStart()
+                                            riverOffsets[-30] = Offset(it - 25f, 0f)
+                                        }
+                                    }
+                                }
+                            }
+
                         } else if (activeTab == "Graph") {
                             // --- GRAPH SELECTION TOOLS (SPLIT UP/DOWN) ---
                             ImagePanelRibbonGroup("Select Graph") {
@@ -481,8 +504,9 @@ fun ImagePanel(
 
                     // Calculate dimension using correct values including table Gap and chainage MM offset
                     val chMm = chLabelOffset.y / (3.78f * density.density)
-                    val graphDimsMm = remember(viewData, hScale, vScale, tableLeftWidthOffset, tableRightWidthOffset, tableGap, chMm) {
-                        calculateGraphDimensionsMM(viewData, selectedGraphType, hScale, vScale, tableLeftWidthOffset, tableRightWidthOffset, tableGap, chMm)
+                    val rowHeightMm = riverOffsets[-40]?.x ?: 10f
+                    val graphDimsMm = remember(viewData, hScale, vScale, tableLeftWidthOffset, tableRightWidthOffset, tableGap, chMm, rowHeightMm) {
+                        calculateGraphDimensionsMM(viewData, selectedGraphType, hScale, vScale, tableLeftWidthOffset, tableRightWidthOffset, tableGap, chMm, rowHeightMm)
                     }
 
                     // AUTO ZOOM LOGIC
@@ -635,9 +659,9 @@ fun ImagePanel(
                             onClick = {
                                 onInteractionStart() // Snapshot before reset
                                 onResetAllInteractive()
-                                selectedItem = null; tableGap = 0f; datumSize = 14f; tableTextSize = 14f
-                                riverTextSize = 14f; chainageTextSize = 18f; lSecItemSize = 20f
-                                riverOffsets.remove(-30); riverOffsets.remove(-31) // Reset table size keys
+                                selectedItem = null; tableGap = 0f; datumSize = 9f; tableTextSize = 9f
+                                axisSize = 9f; riverTextSize = 9f; chainageTextSize = 12f; lSecItemSize = 9f
+                                riverOffsets.remove(-30); riverOffsets.remove(-31); riverOffsets.remove(-40) // Reset table size keys
                                 if(selectedGraphType == "L-Section") {
                                     currentStartCh = startCh; currentEndCh = endCh
                                     generatedSplits = emptyList(); activeSplitIndex = -1

@@ -129,8 +129,9 @@ fun calculatePartitions(
 }
 
 /**
- * Intelligent Placement logic:
- * Finds the minimum required merged layout to fit the graph dimensions, updating the page partitions dynamically.
+ * Strict CAD Viewport Placement logic:
+ * Centers the graph perfectly in the selected partition.
+ * Disables automatic merging to preserve the 6-grid A3 Layout.
  */
 fun fitGraphIntoPartition(
     graphWidthMm: Float,
@@ -139,91 +140,14 @@ fun fitGraphIntoPartition(
     partitions: List<PartitionSlot>
 ): UpdatedPartitionLayout {
 
-    // 1. If Graph Fits Perfectly -> Output Centered Location
-    if (graphWidthMm <= selectedPartition.widthMm && graphHeightMm <= selectedPartition.heightMm) {
-        val placement = FinalPlacementPosition(
-            xMm = selectedPartition.xMm + (selectedPartition.widthMm - graphWidthMm) / 2f,
-            yMm = selectedPartition.yMm + (selectedPartition.heightMm - graphHeightMm) / 2f
-        )
-        return UpdatedPartitionLayout(partitions, placement, selectedPartition)
-    }
-
-    // 2. Needs Auto-Reshape! Extract Canvas Boundaries
-    val maxRight = partitions.maxOfOrNull { it.xMm + it.widthMm } ?: (selectedPartition.xMm + selectedPartition.widthMm)
-    val maxBottom = partitions.maxOfOrNull { it.yMm + it.heightMm } ?: (selectedPartition.yMm + selectedPartition.heightMm)
-    val minLeft = partitions.minOfOrNull { it.xMm } ?: selectedPartition.xMm
-    val minTop = partitions.minOfOrNull { it.yMm } ?: selectedPartition.yMm
-
-    // Required Minimum Physical Bounding Box
-    val reqW = max(graphWidthMm, selectedPartition.widthMm)
-    val reqH = max(graphHeightMm, selectedPartition.heightMm)
-
-    // Initial Starting Points (Top Left of selected)
-    var startX = selectedPartition.xMm
-    var startY = selectedPartition.yMm
-
-    // Push bounding box back Up/Left if extending Right/Down would clip outside Page margins
-    if (startX + reqW > maxRight) {
-        startX = max(minLeft, maxRight - reqW)
-    }
-    if (startY + reqH > maxBottom) {
-        startY = max(minTop, maxBottom - reqH)
-    }
-
-    // Define the Spatial Footprint Needed
-    var currentLeft = startX
-    var currentTop = startY
-    var currentRight = startX + reqW
-    var currentBottom = startY + reqH
-
-    val consumedSlots = mutableSetOf<String>()
-    var expanding = true
-
-    // 3. Spatially Intersect and expand till transitivity closure ends
-    // This perfectly glues intersecting grids into one large rectangle without leaving stray slithers.
-    while (expanding) {
-        expanding = false
-        for (slot in partitions) {
-            if (slot.id in consumedSlots) continue
-
-            val slotRight = slot.xMm + slot.widthMm
-            val slotBottom = slot.yMm + slot.heightMm
-
-            // Collision check with safety epsilon
-            val overlaps = currentLeft < slotRight - 0.1f &&
-                    currentRight > slot.xMm + 0.1f &&
-                    currentTop < slotBottom - 0.1f &&
-                    currentBottom > slot.yMm + 0.1f
-
-            if (overlaps) {
-                consumedSlots.add(slot.id)
-                // Snap edges to bounding limits of consumed slots
-                if (slot.xMm < currentLeft) { currentLeft = slot.xMm; expanding = true }
-                if (slot.yMm < currentTop) { currentTop = slot.yMm; expanding = true }
-                if (slotRight > currentRight) { currentRight = slotRight; expanding = true }
-                if (slotBottom > currentBottom) { currentBottom = slotBottom; expanding = true }
-            }
-        }
-    }
-
-    // 4. Create Updated Partition Layout Configuration
-    val mergedSlot = PartitionSlot(
-        id = "merged_${System.currentTimeMillis()}",
-        xMm = currentLeft,
-        yMm = currentTop,
-        widthMm = currentRight - currentLeft,
-        heightMm = currentBottom - currentTop
-    )
-
-    // Remove the slots subsumed into the larger cell & append the massive slot layout
-    val newPartitions = partitions.filterNot { it.id in consumedSlots }.toMutableList()
-    newPartitions.add(mergedSlot)
-
-    // Calculate strict center against merged layout bounds
+    // ALWAYS center the graph within the user's chosen partition
     val placement = FinalPlacementPosition(
-        xMm = currentLeft + (mergedSlot.widthMm - graphWidthMm) / 2f,
-        yMm = currentTop + (mergedSlot.heightMm - graphHeightMm) / 2f
+        xMm = selectedPartition.xMm + (selectedPartition.widthMm - graphWidthMm) / 2f,
+        yMm = selectedPartition.yMm + (selectedPartition.heightMm - graphHeightMm) / 2f
     )
 
-    return UpdatedPartitionLayout(newPartitions, placement, mergedSlot)
+    // STRICT GRID MODE: We no longer merge or delete adjacent slots.
+    // This guarantees the 2x3 (6 image) layout stays perfectly intact,
+    // just like standard CAD viewports, allowing you to fill all 6 slots.
+    return UpdatedPartitionLayout(partitions, placement, selectedPartition)
 }
