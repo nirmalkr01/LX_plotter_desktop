@@ -1,131 +1,150 @@
-# LX Plotter Desktop (Engineering Edition) 🌊📉
+# LX Plotter Desktop
 
-**LX Plotter Desktop** is a high-performance, open-source Kotlin application built with **Compose for Desktop**. It is specifically engineered to transform raw hydraulic survey data (CSV) into professional, industry-standard **river profile plots** (X-Sections and L-Sections) and **multi-page engineering reports**.
+A high-performance, open-source desktop application for transforming raw hydraulic survey data into professional river profile plots and multi-page engineering reports.
 
-Whether you are a civil engineer, hydrologist, or software contributor, this tool provides a lightweight, highly interactive alternative to heavy CAD software for cross-section analysis.
-
----
-
-## ☕ Support the Development
-
-LX Plotter is built with passion and is completely free and open-source. If this tool has saved you hours of tedious AutoCAD plotting or helped you in your engineering projects, consider supporting my work! Your support helps keep the project maintained and updated.
-
-**Support via UPI (India):** singhnirmalkr5@ibl  
-*(You can enter this ID in GPay, PhonePe, Paytm, or any UPI app)*
+Built with Kotlin and Compose for Desktop, it serves as a lightweight alternative to heavy CAD software for cross-section and longitudinal-section analysis.
 
 ---
 
-## 📥 Download & Updates
+## Features
 
-The application features an integrated **Auto-Update System**. It checks for the latest version on every startup to ensure you always have the most stable UI and calculation engine.
-
-- **Production Environment:** https://lx-plotter-app.vercel.app
-- **Version Metadata:** https://lx-plotter-app.vercel.app/version.json
-- **Distribution:** Hosted via **Vercel** for high-availability updates.
-
-*(Check the Releases tab on GitHub to download the latest Windows MSI installer).*
-
----
-
-## 🚀 Key Features
-
-- **Engineering-Grade Plotting:** Dynamic coordinate mapping with thalweg (deepest point) centering and manual zero-point overrides.
-- **Interactive Designer:** Drag-and-drop support for "RIVER" bank labels, hydraulic blue lines, and custom text annotations.
-- **Responsive Workspace:** Proportional UI design that scales automatically for laptops and high-resolution monitors.
-- **Smart Partitioning:** Automated logic to split long L-Section river profiles into printable segments across multiple pages (A0–A4 support).
-- **CAD-Style PDF Export:** Generate high-fidelity, submission-ready PDF reports with standard engineering title blocks.
+- **Engineering-grade plotting** — Dynamic coordinate mapping with thalweg (deepest point) centering and manual zero-point overrides.
+- **Interactive designer** — Drag-and-drop support for river bank labels, hydraulic blue lines, and custom text annotations.
+- **Smart partitioning** — Automated logic to split long L-Section profiles into printable segments across multiple pages (A0–A4).
+- **CAD-style PDF export** — High-fidelity, submission-ready PDF reports with standard engineering title blocks.
+- **Auto-update system** — Checks for the latest version on every startup via a hosted version manifest.
+- **Responsive workspace** — Proportional UI that scales for laptops and high-resolution monitors.
 
 ---
 
-## 📊 Sample Data for Testing
+## Download
 
-To help you get started immediately, sample data is provided in the repository:
-`sample_data/sampled_kotawali.csv`
+Pre-built Windows MSI installers are available on the [Releases](../../releases) page.
 
-When loading this CSV into the application, map the columns as follows in the prompt:
-- **Chainage:** distance
-- **Distance/Offset:** distance_2
-- **Pre-Monsoon Level:** premonsoon
-- **Post-Monsoon Level:** post_monsoon
+The application auto-updates on startup using the version manifest hosted at:
+- Production: https://lx-plotter-app.vercel.app
+- Version manifest: https://lx-plotter-app.vercel.app/version.json
 
 ---
 
-## 🏗️ System Architecture & File Structure
+## Getting Started with Sample Data
 
-The application follows a **Modular Layered Architecture** to ensure data integrity and UI performance.
+Sample data is included in the repository at `sample_data/sampled_kotawali.csv`.
 
-```plaintext
+When loading this file, map the columns as follows:
+
+| Field | CSV Column |
+|---|---|
+| Chainage | `distance` |
+| Distance / Offset | `distance_2` |
+| Pre-Monsoon Level | `premonsoon` |
+| Post-Monsoon Level | `post_monsoon` |
+
+---
+
+## Tech Stack
+
+| Component | Technology |
+|---|---|
+| Language | Kotlin 2.1.0 |
+| UI Framework | Jetpack Compose for Desktop 1.7.0 |
+| PDF Engine | Apache PDFBox 2.0.30 |
+| JSON Parsing | org.json 20231013 |
+| Distribution / CDN | Vercel |
+
+---
+
+## Project Structure
+
+```
 src/main/kotlin/
 ├── Core & Logic
-│   ├── Main.kt
-│   ├── Models.kt
-│   ├── Logic.kt
-│   ├── PartitionLogic.kt
-│   ├── PageLayout.kt
-│   └── Animation.kt
+│   ├── Main.kt            # Application entry point and update check
+│   ├── Models.kt          # Data models
+│   ├── Logic.kt           # Core calculation engine
+│   ├── PartitionLogic.kt  # L-Section page partitioning
+│   ├── PageLayout.kt      # Page layout definitions
+│   └── Animation.kt       # UI animation utilities
 │
 ├── UI & Rendering
-│   ├── UpperPage.kt
-│   ├── Graph.kt
-│   ├── ImagePanel.kt
-│   ├── SelectTool.kt
-│   ├── ElementBox.kt
-│   └── Components.kt
+│   ├── UpperPage.kt       # Top-level page composable
+│   ├── Graph.kt           # Plot rendering engine
+│   ├── ImagePanel.kt      # Image/canvas panel
+│   ├── SelectTool.kt      # Interactive selection tool
+│   ├── ElementBox.kt      # Draggable annotation elements
+│   └── Components.kt      # Shared UI components
 │
 ├── Workspace Panels
-│   ├── FilePanel.kt
-│   ├── FilePanelUI.kt
+│   ├── FilePanel.kt       # File management panel
+│   ├── FilePanelUI.kt     # File panel layout
 │   ├── FilePanelComponents.kt
 │   ├── FilePanelTools.kt
 │   └── HelpIcon.kt
 │
 └── Export Engine
-    ├── ReportDownloadUI.kt
-    └── Download.kt
-🛠️ Tech Stack
-Language: Kotlin 2.1.0
+    ├── ReportDownloadUI.kt # Export dialog UI
+    └── Download.kt         # PDF generation and file I/O
+```
 
-Framework: Jetpack Compose for Desktop
+---
 
-PDF Engine: Apache PDFBox 2.0.30
+## Building from Source
 
-Data Parsing: Custom CSV Parser
+**Prerequisites:** JDK 17+, Gradle
 
-Hosting/CDN: Vercel
-
-🔧 Developer Workflow (Build & Deploy)
-Update Version: Increment the version number inside build.gradle.kts.
-
-Package:
-
-Bash
-./gradlew packageMsi
-Deploy to Vercel: Push the generated distribution files to your connected Vercel repository.
-
-🤝 Contributing (Open Source)
-This project is fully open-source, and contributions from the community are highly encouraged.
-
-Fork the Project
-
-Create your Feature Branch (git checkout -b feature/AmazingFeature)
-
-Commit your Changes (git commit -m 'Add some AmazingFeature')
-
-Push to the Branch (git push origin feature/AmazingFeature)
-
-Open a Pull Request
-
-👨‍💻 Author
-Nirmal Kumar
-
-📄 License
-This project is licensed under the MIT License. Free for professional engineering use, academic research, and commercial redistribution.
-
-EOF
-
-
-**Step 4: Add, Commit, and Push!**
 ```bash
-git add README.md
-git commit -m "Update README with open source details and UPI"
-git push origin main
+# Clone the repository
+git clone https://github.com/your-username/lx-plotter-desktop.git
+cd lx-plotter-desktop
+
+# Build and package as Windows MSI
+./gradlew packageMsi
+```
+
+The output MSI will be at `build/compose/binaries/main/msi/`.
+
+### Release Deployment
+
+To prepare a release for Vercel distribution:
+
+1. Increment `version` in `build.gradle.kts`.
+2. Run the release task:
+   ```bash
+   ./gradlew releaseToVercel
+   ```
+3. Push the generated files in your Vercel distribution repository.
+
+---
+
+## Contributing
+
+Contributions are welcome. To get started:
+
+1. Fork the repository.
+2. Create a feature branch: `git checkout -b feature/your-feature`
+3. Commit your changes: `git commit -m "Add your feature"`
+4. Push to the branch: `git push origin feature/your-feature`
+5. Open a Pull Request.
+
+Please ensure your code follows the existing modular structure and that any new logic is placed in the appropriate layer.
+
+---
+
+## Support
+
+LX Plotter is free and open-source. If it has saved you time on engineering projects, consider supporting development:
+
+**UPI (India):** `singhnirmalkr5@ibl`
+*(Compatible with GPay, PhonePe, Paytm, and any UPI app)*
+
+---
+
+## Author
+
+**Nirmal Kumar**
+
+---
+
+## License
+
+Licensed under the [MIT License](LICENSE). Free for professional, academic, and commercial use.
