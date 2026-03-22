@@ -1,3 +1,4 @@
+// FILE: D:\LX_plotter_desktop\src\main\kotlin\ImagePanel.kt
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -60,11 +61,9 @@ sealed class InteractiveItem {
     data object TableRightBoundary : InteractiveItem()
     data object TableLeftBoundary : InteractiveItem()
 
-    // NEW: L-Section Specific Items
-    data object LSecPreArrow : InteractiveItem()
-    data object LSecPreText : InteractiveItem()
-    data object LSecPostArrow : InteractiveItem()
-    data object LSecPostText : InteractiveItem()
+    // MODIFIED: Consolidated L-Section Items
+    data object LSecPreLabel : InteractiveItem()
+    data object LSecPostLabel : InteractiveItem()
 }
 
 // Data class for Split Segments
@@ -148,7 +147,7 @@ fun ImagePanel(
     var riverTextSize by remember { mutableStateOf(9f) }
     var chainageTextSize by remember { mutableStateOf(12f) }
 
-    // NEW: L-Section Specific Size (Arrow/Text)
+    // L-Section Specific Size (Arrow + Text)
     var lSecItemSize by remember { mutableStateOf(9f) }
 
     // --- ZOOM STATE ---
@@ -156,7 +155,6 @@ fun ImagePanel(
     var autoZoomPerformed by remember { mutableStateOf(false) }
 
     // --- INTERACTIVE ELEMENT STATE (LOCAL SELECTION ONLY) ---
-    // Note: Actual data is now passed in via parameters
     var selectedItem by remember { mutableStateOf<InteractiveItem?>(null) }
 
     // UI Logic State
@@ -168,7 +166,7 @@ fun ImagePanel(
     val verticalScrollState = rememberScrollState()
 
     // Reset logic when graph type changes
-    LaunchedEffect(activeGraphId, selectedGraphType, riverData) { // Added riverData dependency
+    LaunchedEffect(activeGraphId, selectedGraphType, riverData) {
         selectedItem = null
         generatedSplits = emptyList()
         activeSplitIndex = -1
@@ -398,10 +396,8 @@ fun ImagePanel(
                                             is InteractiveItem.RiverText -> if(item.isLeft) "Left River Text" else "Right River Text"
                                             is InteractiveItem.BlueLine -> if(item.isLeft) "Left Blue Line" else "Right Blue Line"
                                             is InteractiveItem.ChainageLabel -> "Chainage Label"
-                                            is InteractiveItem.LSecPreArrow -> "Pre Arrow"
-                                            is InteractiveItem.LSecPostArrow -> "Post Arrow"
-                                            is InteractiveItem.LSecPreText -> "Pre Label"
-                                            is InteractiveItem.LSecPostText -> "Post Label"
+                                            is InteractiveItem.LSecPreLabel -> "Pre Label"
+                                            is InteractiveItem.LSecPostLabel -> "Post Label"
                                             is InteractiveItem.TableRightBoundary -> "Table Right Edge"
                                             is InteractiveItem.TableLeftBoundary -> "Table Left Edge"
                                             null -> "Select Object..."
@@ -428,11 +424,8 @@ fun ImagePanel(
                                         }
                                         if (selectedGraphType == "L-Section") {
                                             HorizontalDivider()
-                                            DropdownMenuItem(text = { Text("Pre Arrow", fontSize = 11.sp) }, onClick = { selectedItem = InteractiveItem.LSecPreArrow; expanded = false })
-                                            DropdownMenuItem(text = { Text("Pre Label", fontSize = 11.sp) }, onClick = { selectedItem = InteractiveItem.LSecPreText; expanded = false })
-                                            HorizontalDivider()
-                                            DropdownMenuItem(text = { Text("Post Arrow", fontSize = 11.sp) }, onClick = { selectedItem = InteractiveItem.LSecPostArrow; expanded = false })
-                                            DropdownMenuItem(text = { Text("Post Label", fontSize = 11.sp) }, onClick = { selectedItem = InteractiveItem.LSecPostText; expanded = false })
+                                            DropdownMenuItem(text = { Text("Pre Label", fontSize = 11.sp) }, onClick = { selectedItem = InteractiveItem.LSecPreLabel; expanded = false })
+                                            DropdownMenuItem(text = { Text("Post Label", fontSize = 11.sp) }, onClick = { selectedItem = InteractiveItem.LSecPostLabel; expanded = false })
                                         }
                                     }
                                 }
@@ -444,8 +437,7 @@ fun ImagePanel(
                                     when(selectedItem) {
                                         is InteractiveItem.RiverText -> ImagePanelNumberInput("Size:", riverTextSize) { riverTextSize = it }
                                         is InteractiveItem.ChainageLabel -> ImagePanelNumberInput("Size:", chainageTextSize) { chainageTextSize = it }
-                                        is InteractiveItem.LSecPreArrow, is InteractiveItem.LSecPostArrow,
-                                        is InteractiveItem.LSecPreText, is InteractiveItem.LSecPostText -> ImagePanelNumberInput("Size:", lSecItemSize) { lSecItemSize = it }
+                                        is InteractiveItem.LSecPreLabel, is InteractiveItem.LSecPostLabel -> ImagePanelNumberInput("Size:", lSecItemSize) { lSecItemSize = it }
                                         else -> {}
                                     }
                                 }
@@ -602,7 +594,6 @@ fun ImagePanel(
                                     onSelectItem = { },
                                     onDragItem = { item, dragAmount ->
                                         // Un-zoom the drag amount so it's stored in true spatial scaling
-                                        // NOW CORRECTLY DIVIDED BY pxPerMm SO IT STORES PERFECT MILLIMETERS!
                                         val mmDragX = dragAmount.x / scaledPxPerMm
                                         val mmDragY = dragAmount.y / scaledPxPerMm
                                         val mmDrag = Offset(mmDragX, mmDragY)
@@ -612,10 +603,9 @@ fun ImagePanel(
                                             is InteractiveItem.BlueLine -> blueLineOffsets[item.index] = (blueLineOffsets[item.index] ?: Offset.Zero) + mmDrag
                                             is InteractiveItem.ChainageLabel -> onChLabelOffsetChange(chLabelOffset + mmDrag)
 
-                                            is InteractiveItem.LSecPreArrow -> riverOffsets[-10] = (riverOffsets[-10] ?: Offset.Zero) + mmDrag
-                                            is InteractiveItem.LSecPreText -> riverOffsets[-11] = (riverOffsets[-11] ?: Offset.Zero) + mmDrag
-                                            is InteractiveItem.LSecPostArrow -> riverOffsets[-20] = (riverOffsets[-20] ?: Offset.Zero) + mmDrag
-                                            is InteractiveItem.LSecPostText -> riverOffsets[-21] = (riverOffsets[-21] ?: Offset.Zero) + mmDrag
+                                            // MODIFIED: Apply identical drag offsets to index -10 (which controls both LSec elements)
+                                            is InteractiveItem.LSecPreLabel -> riverOffsets[-10] = (riverOffsets[-10] ?: Offset.Zero) + mmDrag
+                                            is InteractiveItem.LSecPostLabel -> riverOffsets[-20] = (riverOffsets[-20] ?: Offset.Zero) + mmDrag
 
                                             // Store table edits straight into riverOffsets so they get passed natively into the element
                                             is InteractiveItem.TableLeftBoundary -> {
@@ -679,10 +669,9 @@ fun ImagePanel(
                                     is InteractiveItem.RiverText -> if(!deletedRivers.contains(item.index)) deletedRivers.add(item.index)
                                     is InteractiveItem.BlueLine -> if(!deletedBlueLines.contains(item.index)) deletedBlueLines.add(item.index)
                                     is InteractiveItem.ChainageLabel -> onChLabelDeleteChange(true)
-                                    is InteractiveItem.LSecPreArrow -> deletedRivers.add(-10)
-                                    is InteractiveItem.LSecPreText -> deletedRivers.add(-11)
-                                    is InteractiveItem.LSecPostArrow -> deletedRivers.add(-20)
-                                    is InteractiveItem.LSecPostText -> deletedRivers.add(-21)
+                                    // MODIFIED: Delete uses the new combined identifiers
+                                    is InteractiveItem.LSecPreLabel -> deletedRivers.add(-10)
+                                    is InteractiveItem.LSecPostLabel -> deletedRivers.add(-20)
                                     null -> {}
                                     else -> {}
                                 }

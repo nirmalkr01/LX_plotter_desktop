@@ -1,6 +1,8 @@
-# LX Plotter Desktop (Engineering Edition)
+# LX Plotter Desktop (Engineering Edition) 🌊📉
 
-**LX Plotter Desktop** is a high-performance Kotlin application built with **Compose for Desktop**. It is specifically engineered to transform raw hydraulic survey data (CSV) into professional, industry-standard **river profile plots** (X-Sections and L-Sections) and **multi-page engineering reports**.
+**LX Plotter Desktop** is a high-performance, open-source Kotlin application built with **Compose for Desktop**. It is specifically engineered to transform raw hydraulic survey data (CSV) into professional, industry-standard **river profile plots** (X-Sections and L-Sections) and **multi-page engineering reports**.
+
+Whether you are a civil engineer, hydrologist, or software contributor, this tool provides a lightweight, highly interactive alternative to heavy CAD software for cross-section analysis.
 
 ---
 
@@ -8,125 +10,74 @@
 
 The application features an integrated **Auto-Update System**. It checks for the latest version on every startup to ensure you always have the most stable UI and calculation engine.
 
-**Current Release:** `Latest Stable`
+- **Production Environment:** [lx-plotter-app.vercel.app](https://lx-plotter-app.vercel.app)
+- **Version Metadata:** [version.json](https://lx-plotter-app.vercel.app/version.json)
+- **Distribution:** Hosted via **Vercel** for high-availability updates.
 
-- **Direct Download (Windows MSI):** [Click here to download latest MSI](https://lx-plotter-app-mxd1.vercel.app/LXPlotter-1.0.3.msi)  
-  *(Note: The link above serves the current stable version v1.0.3)*
-
-- **Version Metadata:** https://lx-plotter-app-mxd1.vercel.app/version.json
-
-- **Release Channel:** Hosted via **Vercel** for high-availability distribution.
+*(Check the Releases tab on GitHub to download the latest Windows MSI installer).*
 
 ---
 
 ## 🚀 Key Features
 
-- **Engineering-Grade Plotting** Dynamic coordinate mapping with *thalweg (deepest point)* centering and manual zero-point overrides.
-
-- **Interactive Designer** Drag-and-drop support for:
-  - "RIVER" bank labels
-  - Hydraulic blue lines
-  - Custom text annotations
-
-- **Responsive Workspace** Proportional UI design that scales automatically for laptops and high-resolution monitors using `BoxWithConstraints`.
-
-- **Smart Partitioning** Automated logic to split long L-Section river profiles into printable segments across multiple pages.
-
-- **DevOps Integration** Fully automated build-to-deploy pipeline that syncs versioning between **Gradle** and the **Vercel distribution server**.
+- **Engineering-Grade Plotting:** Dynamic coordinate mapping with *thalweg (deepest point)* centering and manual zero-point overrides.
+- **Interactive Designer:** Drag-and-drop support for "RIVER" bank labels, hydraulic blue lines, and custom text annotations.
+- **Responsive Workspace:** Proportional UI design that scales automatically for laptops and high-resolution monitors.
+- **Smart Partitioning:** Automated logic to split long L-Section river profiles into printable segments across multiple pages (A0–A4 support).
+- **CAD-Style PDF Export:** Generate high-fidelity, submission-ready PDF reports with standard engineering title blocks.
 
 ---
 
-## 🏗️ System Architecture
+## 📊 Sample Data for Testing
+
+To help you get started immediately, sample data is provided in the repository:
+`sample_data/sampled_kotawali.csv`
+
+When loading this CSV into the application, map the columns as follows in the prompt:
+- **Chainage:** `distance`
+- **Distance/Offset:** `distance_2`
+- **Pre-Monsoon Level:** `premonsoon`
+- **Post-Monsoon Level:** `post_monsoon`
+
+---
+
+## 🏗️ System Architecture & File Structure
 
 The application follows a **Modular Layered Architecture** to ensure data integrity and UI performance.
 
-### 1. Presentation Layer (UI)
-- **Main Screen** Orchestrates the Ribbon controls, Sidebar history, and the dual-view Workspace.
-
-- **Designer Screen** Specialized environment for multi-page PDF layout management.
-
-- **Interactive Canvas** Custom drawing engine using the Compose Canvas API for high-fidelity vector rendering.
-
-### 2. Logic Layer (Business Rules)
-- **Coordinate Mapper** Translates survey measurements into pixel-perfect engineering scales  
-  (e.g., `1:2000 H`, `1:100 V`).
-
-- **Data Processor** Handles shifting of relative distances based on hydraulic thalweg or manual reference points.
-
-- **Partition Engine** Calculates optimal "Slots" for graphs based on paper size (A0–A4) and margins.
-
-### 3. Distribution Layer (DevOps)
-- **Gradle Build System** Automates MSI packaging and digital asset preparation.
-
-- **Vercel Pipeline** Acts as a global CDN for delivering `version.json` metadata and binary updates.
-
----
-
-## 🛠️ Tech Stack
-
-| Component        | Technology |
-|------------------|-----------|
-| Language         | Kotlin 2.1.0 |
-| Framework        | Compose for Desktop |
-| PDF Engine       | Apache PDFBox 2.0.30 |
-| Distribution     | Windows MSI (JPackage) |
-| Hosting          | Vercel |
-| Data Parsing     | org.json + Custom CSV Parser |
-
----
-
-## 📁 Project Structure & Module Map
-
 ```plaintext
-LX_plotter_desktop/
-├── build.gradle.kts              # Build automation, versioning, MSI packaging
-├── src/main/kotlin/
-│   ├── Main.kt                   # Application entry point & auto-update bootstrap
-│   ├── Models.kt                 # Core data models (CSV rows, points, layouts)
-│
-│   ├── Graph.kt                  # Main plotting engine (Compose Canvas)
+src/main/kotlin/
+├── Core & Logic
+│   ├── Main.kt                   # App entry point & window management
+│   ├── Models.kt                 # Data models (RiverPoint, ReportPageItem)
 │   ├── Logic.kt                  # Thalweg processing & coordinate mapping
-│   ├── PartitionLogic.kt         # Page partition & slot calculation logic
-│   ├── PageLayout.kt             # Page sizing, margins, and layout rules
+│   ├── PartitionLogic.kt         # Grid partition & slot calculation for reports
+│   ├── PageLayout.kt             # Engineering title blocks & border drawing
+│   └── Animation.kt              # Alignment guides & snapping logic
 │
-│   ├── Components.kt             # Shared reusable UI components
-│   ├── ElementBox.kt             # Drag & drop elements (labels, text, markers)
-│   ├── SelectTool.kt             # Selection, transform & editing tools
+├── UI & Rendering
+│   ├── UpperPage.kt              # Startup/Home screen UI
+│   ├── Graph.kt                  # Core Compose Canvas plotting engine
+│   ├── ImagePanel.kt             # Interactive canvas overlay (drag & drop)
+│   ├── SelectTool.kt             # Selection bounding box math
+│   ├── ElementBox.kt             # Vector shape rendering (Shapes, Arrows)
+│   └── Components.kt             # Shared UI components (Headers, Tables)
 │
-│   ├── FilePanel.kt              # File & page management controller
-│   ├── FilePanelUI.kt            # File panel main UI
-│   ├── FilePanelComponents.kt    # File panel widgets
-│   ├── FilePanelTools.kt         # File panel action tools
+├── Workspace Panels
+│   ├── FilePanel.kt              # Main layout orchestrator & state holder
+│   ├── FilePanelUI.kt            # Ribbon and panel UI framework
+│   ├── FilePanelComponents.kt    # Scrollable preview lists
+│   ├── FilePanelTools.kt         # Action tools and modifiers
+│   └── HelpIcon.kt               # User guide & documentation dialogs
 │
-│   ├── ImagePanel.kt             # Interactive canvas overlay system
-│   ├── ReportDownloadUI.kt       # Report export & preview UI
-│   ├── Download.kt               # PDF generation (Apache PDFBox + AWT)
-│
-└── src/main/resources/           # Icons, images, static assets
-🔧 Developer Workflow (Build & Deploy)
-To push a new version to all users:
+└── Export Engine
+    ├── ReportDownloadUI.kt       # Report configuration screen
+    └── Download.kt               # Apache PDFBox generation & CSV export
+🛠️ Tech StackComponentTechnologyLanguageKotlin 2.1.0FrameworkJetpack Compose for DesktopPDF EngineApache PDFBox 2.0.30Data ParsingCustom CSV ParserHosting/CDNVercel🔧 Developer Workflow (Build & Deploy)To build the project locally or push a new version:Update Version: Increment the version number inside build.gradle.kts.Package: Run the Gradle task to build the MSI and update version.json.Bash./gradlew packageMsi
+Deploy to Vercel: Push the generated distribution files to your connected Vercel repository to trigger a production deployment.🤝 ContributingContributions are highly welcome! Since this is now an open-source project, feel free to fork the repository, submit pull requests, or open issues for bugs and feature requests.Fork the ProjectCreate your Feature Branch (git checkout -b feature/AmazingFeature)Commit your Changes (git commit -m 'Add some AmazingFeature')Push to the Branch (git push origin feature/AmazingFeature)Open a Pull Request👨‍💻 AuthorNirmal Kumar📄 LicenseThis project is licensed under the MIT License - see the LICENSE file for details. Free for professional engineering use, academic research, and commercial redistribution.
+***
 
-1. Update Version Increment the version number inside build.gradle.kts:
-version = "1.0.3" // Example
-2. Package & Stage Run the custom Gradle task. This builds the MSI and automatically updates the version.json with the correct download link:
-gradlew releaseToVercel
+### Next Steps
+Now that the README is set up for open source, your GitHub repository is going to look incredibly professional. 
 
-Deploy to Vercel Push the generated distribution files to the repository:
-cd D:/lxplotter-dist
-git add .
-git commit -m "Release v1.0.3"
-git push origin main
-
-Users will receive the update notification automatically on their next launch.
-
-👨‍💻 Author
-Nirmal Kumar
-
-📄 License
-This project is maintained for:
-
-Professional engineering use
-
-Academic & educational research
-
-Commercial redistribution requires explicit permission.
+Since you are hosting the installer and version files on Vercel, would you like me to help 

@@ -1,3 +1,4 @@
+// FILE: D:\LX_plotter_desktop\src\main\kotlin\ReportDownloadUI.kt
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -484,59 +485,93 @@ fun GraphPageCanvas(
             val midPoint = sortedData.getOrElse(midIndex) { sortedData.first() }
             val defX = mX(midPoint.chainage)
 
+            // Geometry logic for the unified Arrow + Label block
+            fun drawUnifiedLabel(
+                isPre: Boolean,
+                baseX: Float,
+                baseY: Float,
+                indexId: Int,
+                defaultHorizontalShiftMm: Float, // To separate Pre and Post initially
+                color: Color,
+                labelText: String,
+                isSelected: Boolean
+            ) {
+                if (deletedRiverIndices.contains(indexId)) return
+
+                val userOffset = riverOffsets[indexId] ?: Offset.Zero
+                val scaledOffset = Offset(userOffset.x * mmToPx, userOffset.y * mmToPx)
+
+                // Tip of the arrow (touches the line)
+                val tipX = baseX + (defaultHorizontalShiftMm * mmToPx) + scaledOffset.x
+                val tipY = baseY + scaledOffset.y
+
+                // Dynamic Geometry scaled to font size setting and zoom. Pure MM logic.
+                val baseScale = riverTextSize / 9f
+                val arrowHeadSizePx = (2.5f * baseScale) * mmToPx
+                val verticalShaftHeightPx = (8.0f * baseScale) * mmToPx
+                val horizontalLineLenPx = (10.0f * baseScale) * mmToPx
+                val textGapPx = (1.5f * baseScale) * mmToPx
+                val strokePx = max(1f, (0.3f * baseScale) * mmToPx)
+
+                val drawColor = if(isSelected) Color.Magenta else color
+
+                val txtLayout = textMeasurer.measure(
+                    text = labelText,
+                    style = TextStyle(
+                        fontFamily = FontFamily.SansSerif,
+                        fontSize = scaledFontSize(riverTextSize),
+                        color = drawColor,
+                        fontWeight = FontWeight.Bold
+                    )
+                )
+
+                val shaftTopY = tipY - verticalShaftHeightPx
+                val horizontalEndXPx = tipX + horizontalLineLenPx
+
+                // 1. Draw Arrow Head
+                val headPath = Path().apply {
+                    moveTo(tipX, tipY)
+                    lineTo(tipX - arrowHeadSizePx * 0.5f, tipY - arrowHeadSizePx)
+                    lineTo(tipX + arrowHeadSizePx * 0.5f, tipY - arrowHeadSizePx)
+                    close()
+                }
+                drawPath(headPath, drawColor)
+
+                // 2. Draw Vertical Shaft
+                drawLine(drawColor, Offset(tipX, tipY - arrowHeadSizePx), Offset(tipX, shaftTopY), strokeWidth = strokePx)
+
+                // 3. Draw Horizontal Line
+                drawLine(drawColor, Offset(tipX - (strokePx/2), shaftTopY), Offset(horizontalEndXPx, shaftTopY), strokeWidth = strokePx)
+
+                // 4. Draw Text (Vertically centered with the horizontal line)
+                val textX = horizontalEndXPx + textGapPx
+                val textY = shaftTopY - (txtLayout.size.height / 2.2f) // Slight offset for descent compensation
+                drawText(txtLayout, topLeft = Offset(textX, textY))
+            }
+
             if (showPre) {
-                val defY = mY(midPoint.preMonsoon)
-                if (!deletedRiverIndices.contains(-10)) {
-                    val userOffset = riverOffsets[-10] ?: Offset.Zero
-                    val scaledOffset = Offset(userOffset.x * mmToPx, userOffset.y * mmToPx)
-                    val tipX = defX + scaledOffset.x
-                    val tipY = defY + scaledOffset.y
-                    val size = (riverTextSize * 2.5f) * visualStrokeScale
-                    val isSelected = selectedItem is InteractiveItem.LSecPreArrow
-                    val color = if(isSelected) Color.Magenta else cPre
-                    val path = Path().apply { moveTo(tipX + size, tipY - size); lineTo(tipX, tipY - size); lineTo(tipX, tipY) }
-                    drawPath(path, color, style = Stroke(width = 3f * visualStrokeScale))
-                    val headPath = Path().apply { moveTo(tipX, tipY); lineTo(tipX - size * 0.2f, tipY - size * 0.2f); lineTo(tipX + size * 0.2f, tipY - size * 0.2f); close() }
-                    drawPath(headPath, color)
-                }
-                if (!deletedRiverIndices.contains(-11)) {
-                    val userOffset = riverOffsets[-11] ?: Offset.Zero
-                    val scaledOffset = Offset(userOffset.x * mmToPx, userOffset.y * mmToPx)
-                    val size = (riverTextSize * 2.5f) * visualStrokeScale
-                    val textX = defX + size + (5f * visualStrokeScale) + scaledOffset.x
-                    val textY = defY - size - (10f * visualStrokeScale) + scaledOffset.y
-                    val isSelected = selectedItem is InteractiveItem.LSecPreText
-                    val textColor = if(isSelected) Color.Magenta else cPre
-                    val txtLayout = textMeasurer.measure("L-section of Pre Monsoon", style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = scaledFontSize(riverTextSize), color = textColor, fontWeight = FontWeight.Bold))
-                    drawText(txtLayout, topLeft = Offset(textX, textY))
-                }
+                drawUnifiedLabel(
+                    isPre = true,
+                    baseX = defX,
+                    baseY = mY(midPoint.preMonsoon),
+                    indexId = -10,
+                    defaultHorizontalShiftMm = 0f,
+                    color = cPre,
+                    labelText = "L-section of Pre Monsoon",
+                    isSelected = selectedItem is InteractiveItem.LSecPreLabel
+                )
             }
             if (showPost) {
-                val defY = mY(midPoint.postMonsoon)
-                if (!deletedRiverIndices.contains(-20)) {
-                    val userOffset = riverOffsets[-20] ?: Offset.Zero
-                    val scaledOffset = Offset(userOffset.x * mmToPx, userOffset.y * mmToPx)
-                    val tipX = defX + (50f * visualStrokeScale) + scaledOffset.x
-                    val tipY = defY + scaledOffset.y
-                    val size = (riverTextSize * 2.5f) * visualStrokeScale
-                    val isSelected = selectedItem is InteractiveItem.LSecPostArrow
-                    val color = if(isSelected) Color.Magenta else cPost
-                    val path = Path().apply { moveTo(tipX + size, tipY - size); lineTo(tipX, tipY - size); lineTo(tipX, tipY) }
-                    drawPath(path, color, style = Stroke(width = 3f * visualStrokeScale))
-                    val headPath = Path().apply { moveTo(tipX, tipY); lineTo(tipX - size * 0.2f, tipY - size * 0.2f); lineTo(tipX + size * 0.2f, tipY - size * 0.2f); close() }
-                    drawPath(headPath, color)
-                }
-                if (!deletedRiverIndices.contains(-21)) {
-                    val userOffset = riverOffsets[-21] ?: Offset.Zero
-                    val scaledOffset = Offset(userOffset.x * mmToPx, userOffset.y * mmToPx)
-                    val size = (riverTextSize * 2.5f) * visualStrokeScale
-                    val textX = defX + (50f * visualStrokeScale) + size + (5f * visualStrokeScale) + scaledOffset.x
-                    val textY = defY - size - (10f * visualStrokeScale) + scaledOffset.y
-                    val isSelected = selectedItem is InteractiveItem.LSecPostText
-                    val textColor = if(isSelected) Color.Magenta else cPost
-                    val txtLayout = textMeasurer.measure("L-section of Post Monsoon", style = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = scaledFontSize(riverTextSize), color = textColor, fontWeight = FontWeight.Bold))
-                    drawText(txtLayout, topLeft = Offset(textX, textY))
-                }
+                drawUnifiedLabel(
+                    isPre = false,
+                    baseX = defX,
+                    baseY = mY(midPoint.postMonsoon),
+                    indexId = -20,
+                    defaultHorizontalShiftMm = 40f, // Shifted to the right so they don't overlap by default
+                    color = cPost,
+                    labelText = "L-section of Post Monsoon",
+                    isSelected = selectedItem is InteractiveItem.LSecPostLabel
+                )
             }
         }
 
