@@ -73,11 +73,3 @@ src/main/kotlin/
 └── Export Engine
     ├── ReportDownloadUI.kt       # Report configuration screen
     └── Download.kt               # Apache PDFBox generation & CSV export
-🛠️ Tech StackComponentTechnologyLanguageKotlin 2.1.0FrameworkJetpack Compose for DesktopPDF EngineApache PDFBox 2.0.30Data ParsingCustom CSV ParserHosting/CDNVercel🔧 Developer Workflow (Build & Deploy)To build the project locally or push a new version:Update Version: Increment the version number inside build.gradle.kts.Package: Run the Gradle task to build the MSI and update version.json.Bash./gradlew packageMsi
-Deploy to Vercel: Push the generated distribution files to your connected Vercel repository to trigger a production deployment.🤝 ContributingContributions are highly welcome! Since this is now an open-source project, feel free to fork the repository, submit pull requests, or open issues for bugs and feature requests.Fork the ProjectCreate your Feature Branch (git checkout -b feature/AmazingFeature)Commit your Changes (git commit -m 'Add some AmazingFeature')Push to the Branch (git push origin feature/AmazingFeature)Open a Pull Request👨‍💻 AuthorNirmal Kumar📄 LicenseThis project is licensed under the MIT License - see the LICENSE file for details. Free for professional engineering use, academic research, and commercial redistribution.
-***
-
-### Next Steps
-Now that the README is set up for open source, your GitHub repository is going to look incredibly professional. 
-
-Since you are hosting the installer and version files on Vercel, would you like me to help 
